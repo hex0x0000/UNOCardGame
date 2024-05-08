@@ -81,6 +81,7 @@
     <Compile Include="Interface.Designer.cs">
       <DependentUpon>Interface.cs</DependentUpon>
     </Compile>
+    <Compile Include="Player.cs" />
     <Compile Include="Program.cs" />
     <Compile Include="Properties\AssemblyInfo.cs" />
     <EmbeddedResource Include="Interface.resx">

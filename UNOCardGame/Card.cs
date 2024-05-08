@@ -63,35 +63,31 @@ namespace UNOCardGame
     /// </summary>
     class Card
     {
-        private Type type;
-        private Colors? color = null;
-        private Normals? normalType = null;
-        private Specials? specialType = null;
-
         /// <summary>
-        /// L'ID della carta del server. Viene usato dal server per riconoscere la carta
+        /// L'ID della carta nel server.
+        /// Viene usato dal server per riconoscere la carta nell'hashmap del server.
         /// </summary>
         public int? Id { get; }
 
         /// <summary>
         /// Il tipo della carta, se normale o speciale
         /// </summary>
-        public Type Type => type;
+        public Type Type { get; }
 
         /// <summary>
         /// Il colore della carta, se è una carta normale
         /// </summary>
-        public Colors? Color => color;
+        public Colors? Color { get; }
 
         /// <summary>
         /// Il tipo della carta, se è una carta normale
         /// </summary>
-        public Normals? NormalType => normalType;
+        public Normals? NormalType { get; }
 
         /// <summary>
         /// Il tipo della carta, se è una carta speciale
         /// </summary>
-        public Specials? SpecialType => specialType;
+        public Specials? SpecialType { get; }
 
         /// <summary>
         /// Inizializza la carta come tipo normale (carta con un colore).
@@ -100,9 +96,9 @@ namespace UNOCardGame
         /// <param name="color">Il colore della carta</param>
         public Card(Normals normalType, Colors color)
         {
-            type = Type.NORMAL;
-            this.normalType = normalType;
-            this.color = color;
+            Type = Type.NORMAL;
+            NormalType = normalType;
+            Color = color;
         }
 
         /// <summary>
@@ -111,8 +107,8 @@ namespace UNOCardGame
         /// <param name="specialType">Tipo di carta</param>
         public Card(Specials specialType)
         {
-            type = Type.SPECIAL;
-            this.specialType = specialType;
+            Type = Type.SPECIAL;
+            SpecialType = specialType;
         }
 
         /// <summary>
@@ -126,7 +122,7 @@ namespace UNOCardGame
         [JsonConstructor]
         public Card(Type type, Colors? color, Normals? normalType, Specials? specialType, int? id)
         {
-            this.type = type; this.color = color; this.normalType = normalType; this.specialType = specialType; this.Id = id;
+            Type = type; Color = color; NormalType = normalType; SpecialType = specialType; Id = id;
         }
 
         /// <summary>
@@ -165,12 +161,12 @@ namespace UNOCardGame
 
         public override string ToString()
         {
-            switch (type)
+            switch (Type)
             {
                 case Type.NORMAL:
-                    return $"{normalType}-{color}";
+                    return $"{NormalType}-{Color}";
                 case Type.SPECIAL:
-                    return specialType.ToString();
+                    return SpecialType.ToString();
                 default:
                     return "";
             }
