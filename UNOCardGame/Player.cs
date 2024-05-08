@@ -106,6 +106,12 @@ namespace UNOCardGame
         /// </summary>
         public Personalization Personalizations { get; }
 
+        /// <summary>
+        /// Constructor del giocatore, usato anche durante la deserializzazione da JSON.
+        /// </summary>
+        /// <param name="id">ID del giocatore nel server</param>
+        /// <param name="name">Username del giocatore</param>
+        /// <param name="personalizations">Personalizzazioni</param>
         [JsonConstructor]
         public Player(int id, string name, Personalization personalizations)
         {
