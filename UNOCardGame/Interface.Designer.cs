@@ -95,7 +95,6 @@ namespace UNOCardGame
             this.playersLabel.Size = new System.Drawing.Size(84, 24);
             this.playersLabel.TabIndex = 8;
             this.playersLabel.Text = "Giocatori";
-            this.playersLabel.Click += new System.EventHandler(this.label1_Click);
             // 
             // turnDirection
             // 
@@ -116,7 +115,6 @@ namespace UNOCardGame
             this.cardsLabel.Size = new System.Drawing.Size(71, 29);
             this.cardsLabel.TabIndex = 10;
             this.cardsLabel.Text = "Carte";
-            this.cardsLabel.Click += new System.EventHandler(this.label2_Click);
             // 
             // bluffButton
             // 

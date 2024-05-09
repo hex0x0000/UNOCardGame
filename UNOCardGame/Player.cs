@@ -13,17 +13,34 @@ namespace UNOCardGame
     /// <summary>
     /// Personalizzazioni del giocatore.
     /// </summary>
-    class Personalization
+    class Personalization : Serialization<Personalization>
     {
         /// <summary>
         /// Colori possibili per il background dei giocatori.
         /// </summary>
+        [JsonIgnore]
         public static readonly List<Color> BG_COLORS = new List<Color>() { Color.White, Color.Beige, Color.DimGray };
 
         /// <summary>
         /// Colori possibili per l'username dei giocatori.
         /// </summary>
+        [JsonIgnore]
         public static readonly List<Color> USERNAME_COLORS = new List<Color> { Color.Black, Color.DeepSkyBlue, Color.DarkRed };
+
+        /// <summary>
+        /// Colore dell'username.
+        /// </summary>
+        public Color UsernameColor { get; }
+
+        /// <summary>
+        /// Colore del background dell'utente.
+        /// </summary>
+        public Color BackgroundColor { get; }
+
+        /// <summary>
+        /// Nome del file dell'immagine profilo.
+        /// </summary>
+        public string AvatarImage { get; }
 
         /// <summary>
         /// Inizializza una nuova personalizzazione
@@ -50,46 +67,12 @@ namespace UNOCardGame
             UsernameColor = USERNAME_COLORS[random.Next(USERNAME_COLORS.Count)];
             AvatarImage = "default";
         }
-
-        /// <summary>
-        /// Colore dell'username.
-        /// </summary>
-        public Color UsernameColor { get; }
-
-        /// <summary>
-        /// Colore del background dell'utente.
-        /// </summary>
-        public Color BackgroundColor { get; }
-
-        /// <summary>
-        /// Nome del file dell'immagine profilo.
-        /// </summary>
-        public string AvatarImage { get; }
-
-        /// <summary>
-        /// Deserializza il JSON della personalizzazione e la trasforma nella classe.
-        /// </summary>
-        /// <param name="json">JSON da deserializzare</param>
-        /// <returns>Classe Personalization letta dal JSON</returns>
-        public static Personalization Deserialize(string json)
-        {
-            return JsonSerializer.Deserialize<Personalization>(json);
-        }
-
-        /// <summary>
-        /// Serializza la classe e la trasforma in JSON.
-        /// </summary>
-        /// <returns>Stringa contenente la personalizzazione serializzata</returns>
-        public string Serialize()
-        {
-            return JsonSerializer.Serialize(this);
-        }
     }
 
     /// <summary>
     /// Classe che descrive il Giocatore, con funzioni e utilities.
     /// </summary>
-    internal class Player
+    internal class Player : Serialization<Player>
     {
         /// <summary>
         /// ID del giocatore per il server. Viene usato per riconoscerlo.
@@ -104,6 +87,7 @@ namespace UNOCardGame
         /// <summary>
         /// Personalizzazioni del giocatore.
         /// </summary>
+        [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
         public Personalization Personalizations { get; }
 
         /// <summary>
@@ -118,32 +102,9 @@ namespace UNOCardGame
             Id = id;
             Name = name;
             if (personalizations != null)
-            {
                 Personalizations = personalizations;
-            }
             else
-            {
                 Personalizations = new Personalization();
-            }
-        }
-
-        /// <summary>
-        /// Deserializza il JSON del giocatore e lo trasforma nella classe.
-        /// </summary>
-        /// <param name="json">JSON da deserializzare</param>
-        /// <returns>Classe player letta dal JSON</returns>
-        public static Player Deserialize(string json)
-        {
-            return JsonSerializer.Deserialize<Player>(json);
-        }
-
-        /// <summary>
-        /// Serializza la classe e la trasforma in JSON.
-        /// </summary>
-        /// <returns>Stringa contenente il player serializzato</returns>
-        public string Serialize()
-        {
-            return JsonSerializer.Serialize(this);
         }
 
         /// <summary>
