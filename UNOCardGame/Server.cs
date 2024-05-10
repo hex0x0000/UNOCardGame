@@ -32,7 +32,7 @@ namespace UNOCardGame
         /// Tutti i player del gioco, a parte l'host.
         /// Questo hashmap contiene tutti i dati necessari per comunicare con i client.
         /// </summary>
-        private Dictionary<int, PlayerData> players = new Dictionary<int, PlayerData>();
+        private Dictionary<uint, PlayerData> players = new Dictionary<uint, PlayerData>();
 
         /// <summary>
         /// I dati di ogni player.
@@ -46,6 +46,12 @@ namespace UNOCardGame
             /// E' necessario anche in caso di riconessione.
             /// </summary>
             long accessCode;
+
+            /// <summary>
+            /// Socket della connessione al client. 
+            /// </summary>
+            Socket socket;
+
             /// <summary>
             /// Dati del player non legati alla connessione.
             /// </summary>

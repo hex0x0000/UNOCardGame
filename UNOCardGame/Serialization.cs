@@ -25,5 +25,17 @@ namespace UNOCardGame
         /// <param name="json">JSON da deserializzare</param>
         /// <returns>La classe deserializzata</returns>
         public static T Deserialize(string json) => JsonSerializer.Deserialize<T>(json);
+
+        /// <summary>
+        /// Serializza la classe e la trasforma in bytes (UTF-8).
+        /// </summary>
+        /// <returns>I byte della classe</returns>
+        public byte[] Encode() => Encoding.UTF8.GetBytes(Serialize());
+
+        /// <summary>
+        /// Deserializza i byte (UTF-8) e li trasforma nella classe.
+        /// </summary>
+        /// <returns>La classe deserializzata</returns>
+        public static T Decode(byte[] bytes) => Deserialize(Encoding.UTF8.GetString(bytes));
     }
 }

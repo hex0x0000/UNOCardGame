@@ -27,15 +27,37 @@ namespace UNOCardGame
         [JsonIgnore]
         public static readonly List<Color> USERNAME_COLORS = new List<Color> { Color.Black, Color.DeepSkyBlue, Color.DarkRed };
 
+        private Color _UsernameColor;
+
         /// <summary>
         /// Colore dell'username.
         /// </summary>
-        public Color UsernameColor { get; }
+        public Color UsernameColor
+        {
+            get => _UsernameColor;
+            private set
+            {
+                if (!USERNAME_COLORS.Contains(value))
+                    throw new ArgumentException("Value must be contained within its possible values specified in USERNAME_COLORS", nameof(UsernameColor));
+                _UsernameColor = value;
+            }
+        }
+
+        private Color _BackgroundColor;
 
         /// <summary>
         /// Colore del background dell'utente.
         /// </summary>
-        public Color BackgroundColor { get; }
+        public Color BackgroundColor
+        {
+            get => _BackgroundColor;
+            private set
+            {
+                if (!BG_COLORS.Contains(value))
+                    throw new ArgumentException("Value must be contained within its possible values specified in BG_COLORS", nameof(BackgroundColor));
+                _BackgroundColor = value;
+            }
+        }
 
         /// <summary>
         /// Nome del file dell'immagine profilo.
@@ -77,7 +99,7 @@ namespace UNOCardGame
         /// <summary>
         /// ID del giocatore per il server. Viene usato per riconoscerlo.
         /// </summary>
-        public int Id { get; }
+        public uint Id { get; }
 
         /// <summary>
         /// Nome del giocatore.
