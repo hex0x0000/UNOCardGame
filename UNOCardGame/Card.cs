@@ -6,6 +6,7 @@ using System.Threading.Tasks;
 using System.Windows.Forms;
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using System.Data.SqlTypes;
 
 namespace UNOCardGame
 {
@@ -14,8 +15,8 @@ namespace UNOCardGame
     /// </summary>
     enum Type
     {
-        NORMAL, // 100 carte su 108
-        SPECIAL // 8 carte su 108
+        Normal, // 100 carte su 108
+        Special // 8 carte su 108
     }
 
     /// <summary>
@@ -23,10 +24,10 @@ namespace UNOCardGame
     /// </summary>
     enum Colors
     {
-        RED, // Stesse probabilità (1/4)
-        GREEN,
-        BLUE,
-        YELLOW
+        Red, // Stesse probabilità (1/4)
+        Green,
+        Blue,
+        Yellow
     }
 
     /// <summary>
@@ -36,19 +37,19 @@ namespace UNOCardGame
     /// </summary>
     enum Normals
     {
-        ZERO, // 4 carte su 100 (1/25 di probabilità)
-        ONE, // 8 carte su 100 (2/25 di probabilità)
-        TWO, // ...
-        THREE,
-        FOUR,
-        FIVE,
-        SIX,
-        SEVEN,
-        EIGHT,
-        NINE,
-        PLUS_TWO,
-        REVERSE,
-        BLOCK
+        Zero, // 4 carte su 100 (1/25 di probabilità)
+        One, // 8 carte su 100 (2/25 di probabilità)
+        Two, // ...
+        Three,
+        Four,
+        Five,
+        Six,
+        Seven,
+        Eight,
+        Nine,
+        PlusTwo,
+        Reverse,
+        Block
     }
 
     /// <summary>
@@ -56,15 +57,15 @@ namespace UNOCardGame
     /// </summary>
     enum Specials
     {
-        PLUS_FOUR, // Stesse probabilità (1/2)
-        CHANGE_COLOR
+        PlusFour, // Stesse probabilità (1/2)
+        ChangeColor
     }
 
     /// <summary>
     /// Classe della Carta.
     /// Contiene tutte le informazioni della carta e le sue utilities.
     /// </summary>
-    class Card : Serialization<Card>
+    class Card
     {
         /// <summary>
         /// L'ID della carta nel server.
@@ -169,7 +170,7 @@ namespace UNOCardGame
         /// <param name="color">Il colore della carta</param>
         public Card(Normals normalType, Colors color)
         {
-            Type = Type.NORMAL;
+            Type = Type.Normal;
             NormalType = normalType;
             Color = color;
         }
@@ -180,7 +181,7 @@ namespace UNOCardGame
         /// <param name="specialType">Tipo di carta</param>
         public Card(Specials specialType)
         {
-            Type = Type.SPECIAL;
+            Type = Type.Special;
             SpecialType = specialType;
         }
 
@@ -230,9 +231,9 @@ namespace UNOCardGame
                     // e 100/108esimi di possibilità che rand sia maggiore del numero 8/108
                     rand = _Random.NextDouble();
                     if (rand <= 8.0 / 108.0)
-                        return (int)Type.SPECIAL;
+                        return (int)Type.Special;
                     else
-                        return (int)Type.NORMAL;
+                        return (int)Type.Normal;
                 case nameof(Normals):
                     // Le carte normali sono 96 + 4 zeri, tutti i tipi hanno pari probabilità di venire
                     // estratti (2/25esimi) a parte gli zeri (1/25esimo).
@@ -241,7 +242,7 @@ namespace UNOCardGame
                     rand = _Random.NextDouble();
                     double limit = 1.0 / 25.0;
                     if (rand <= limit)
-                        return (int)Normals.ZERO;
+                        return (int)Normals.Zero;
                     for (int i = 1; i <= _NormalsEnumLength; i++, limit += 2.0 / 25.0)
                         if (rand <= limit)
                             return i - 1;
@@ -267,22 +268,35 @@ namespace UNOCardGame
             // la probabilità della singola carta nel mazzo
             switch ((Type)PickRandomEnum<Type>())
             {
-                case Type.NORMAL:
+                case Type.Normal:
                     return new Card((Normals)PickRandomEnum<Normals>(), (Colors)PickRandomEnum<Colors>());
-                case Type.SPECIAL:
+                case Type.Special:
                     return new Card((Specials)PickRandomEnum<Specials>());
                 default:
                     return null;
             }
         }
 
+        /// <summary>
+        /// Genera un nuovo deck di carte tramite Cards.PickRandom()
+        /// </summary>
+        /// <param name="n">Numero di carte nel deck</param>
+        /// <returns>Nuovo deck di carte</returns>
+        public static List<Card> GenerateDeck(uint n)
+        {
+            var deck = new List<Card>();
+            for (uint i = 0; i < n; i++)
+                deck.Add(PickRandom());
+            return deck;
+        }
+
         public override string ToString()
         {
             switch (Type)
             {
-                case Type.NORMAL:
+                case Type.Normal:
                     return $"{NormalType}-{Color}";
-                case Type.SPECIAL:
+                case Type.Special:
                     return SpecialType.ToString();
                 default:
                     return "";

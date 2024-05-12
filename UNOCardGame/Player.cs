@@ -13,7 +13,7 @@ namespace UNOCardGame
     /// <summary>
     /// Personalizzazioni del giocatore.
     /// </summary>
-    class Personalization : Serialization<Personalization>
+    public class Personalization
     {
         /// <summary>
         /// Colori possibili per il background dei giocatori.
@@ -94,12 +94,13 @@ namespace UNOCardGame
     /// <summary>
     /// Classe che descrive il Giocatore, con funzioni e utilities.
     /// </summary>
-    internal class Player : Serialization<Player>
+    public class Player
     {
         /// <summary>
-        /// ID del giocatore per il server. Viene usato per riconoscerlo.
+        /// ID del giocatore nel server. Viene usato per riconoscerlo.
         /// </summary>
-        public uint Id { get; }
+        [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+        public uint? Id { get; }
 
         /// <summary>
         /// Nome del giocatore.
@@ -119,7 +120,7 @@ namespace UNOCardGame
         /// <param name="name">Username del giocatore</param>
         /// <param name="personalizations">Personalizzazioni</param>
         [JsonConstructor]
-        public Player(int id, string name, Personalization personalizations)
+        public Player(uint? id, string name, Personalization personalizations)
         {
             Id = id;
             Name = name;

@@ -91,7 +91,12 @@
   </ItemGroup>
   <ItemGroup>
     <Compile Include="Card.cs" />
+    <Compile Include="Log.cs" />
     <Compile Include="Packet.cs" />
+    <Compile Include="Packets\ChatMessage.cs" />
+    <Compile Include="Packets\Join.cs" />
+    <Compile Include="Packets\NewPlayerData.cs" />
+    <Compile Include="Packets\Status.cs" />
     <Compile Include="Serialization.cs" />
     <Compile Include="Interface.cs">
       <SubType>Form</SubType>

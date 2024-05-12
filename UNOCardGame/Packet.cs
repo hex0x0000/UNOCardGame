@@ -9,7 +9,9 @@ using System.Threading.Tasks;
 
 namespace UNOCardGame
 {
-
+    /// <summary>
+    /// Possibili errori durante la comunicazione dei pacchetti.
+    /// </summary>
     public enum PacketExceptions
     {
         SerializationFailed,
@@ -38,22 +40,10 @@ namespace UNOCardGame
     }
 
     /// <summary>
-    /// Un pacchetto con un contenuto generico.
-    /// Questa classe contiene tutte le funzioni necessarie per mandare un pacchetto
-    /// di informazioni, sia per il client che per il server.
-    /// Il massimo di byte possibili in un pacchetto è di 65535 bytes.
+    /// Classe contenente tutte le funzioni necessarie per mandare e ricevere pacchetti.
+    /// La grandezza massima di un pacchetto è sizeof(ushort) (65535 bytes)
     /// </summary>
-    /// <typeparam name="T">Una classe che può essere serializzata</typeparam>
-    public class Packet<T> where T : Serialization<T>
-    {
-        /// <summary>
-        /// Contenuto del pacchetto.
-        /// Questo contenuto può essere serializzato e codificato per essere mandato.
-        /// </summary>
-        public T Content { get; protected set; }
-
-        public Packet(T content) => Content = content;
-
+    public class Packet {
         /// <summary>
         /// Manda il numero di byte del contenuto da mandare.
         /// </summary>
@@ -84,46 +74,28 @@ namespace UNOCardGame
         }
 
         /// <summary>
-        /// Manda il pacchetto.
+        /// Annulla la ricezione di un pacchetto.
         /// </summary>
-        /// <param name="socket">Socket della connessione a cui mandare il pacchetto</param>
-        public void Send(Socket socket)
+        /// <param name="socket">Connessione su cui annullare la ricezione</param>
+        /// <exception cref="PacketException"></exception>
+        public static void CancelReceive(Socket socket)
         {
             try
             {
-                // Manda nome del pacchetto
-                byte[] name = Encoding.UTF8.GetBytes(nameof(T));
-                SendContentLen(socket, (ushort)name.Length);
-                socket.Send(name);
-
-                // Manda contenuto del pacchetto
-                byte[] content = Content.Encode();
-                SendContentLen(socket, (ushort)content.Length);
-                socket.Send(content);
-            }
-            catch (OverflowException e)
-            {
-                throw new PacketException(PacketExceptions.PacketTooBig, "Packet too big, overflow happened while sending", e);
+                byte[] name = new byte[ReceiveContentLen(socket)];
+                socket.Receive(name);
             }
             catch (ArgumentNullException e)
             {
-                throw new PacketException(PacketExceptions.InvalidArgument, "A passed argument was null while sending packet", e);
+                throw new PacketException(PacketExceptions.InvalidArgument, "A passed argument was null while receiving name", e);
             }
             catch (SocketException e)
             {
-                throw new PacketException(PacketExceptions.SocketFailed, "Failed to send packet due to connection error", e);
-            }
-            catch (NotSupportedException e)
-            {
-                throw new PacketException(PacketExceptions.SerializationFailed, "Failed to serialize packet while sending it", e);
-            }
-            catch (EncoderFallbackException e)
-            {
-                throw new PacketException(PacketExceptions.EncodingFailed, "Failed to encode packet while sending it", e);
+                throw new PacketException(PacketExceptions.SocketFailed, "Failed to receive name due to connection error", e);
             }
             catch (Exception e)
             {
-                throw new PacketException(PacketExceptions.Unknown, "Unknown exception happened while sending packet", e);
+                throw new PacketException(PacketExceptions.Unknown, "Unknown exception happened while receiving name", e);
             }
         }
 
@@ -159,18 +131,61 @@ namespace UNOCardGame
         }
 
         /// <summary>
+        /// Manda il pacchetto.
+        /// </summary>
+        /// <param name="socket">Socket della connessione a cui mandare il pacchetto</param>
+        public static void Send<T>(Socket socket, T content, string packetName = nameof(T)) where T: Serialization<T>
+        {
+            try
+            {
+                // Manda nome del pacchetto
+                byte[] name = Encoding.UTF8.GetBytes(packetName);
+                SendContentLen(socket, (ushort)name.Length);
+                socket.Send(name);
+
+                // Manda contenuto del pacchetto
+                byte[] contentBuf = content.Encode();
+                SendContentLen(socket, (ushort)contentBuf.Length);
+                socket.Send(contentBuf);
+            }
+            catch (OverflowException e)
+            {
+                throw new PacketException(PacketExceptions.PacketTooBig, "Packet too big, overflow happened while sending", e);
+            }
+            catch (ArgumentNullException e)
+            {
+                throw new PacketException(PacketExceptions.InvalidArgument, "A passed argument was null while sending packet", e);
+            }
+            catch (SocketException e)
+            {
+                throw new PacketException(PacketExceptions.SocketFailed, "Failed to send packet due to connection error", e);
+            }
+            catch (NotSupportedException e)
+            {
+                throw new PacketException(PacketExceptions.SerializationFailed, "Failed to serialize packet while sending it", e);
+            }
+            catch (EncoderFallbackException e)
+            {
+                throw new PacketException(PacketExceptions.EncodingFailed, "Failed to encode packet while sending it", e);
+            }
+            catch (Exception e)
+            {
+                throw new PacketException(PacketExceptions.Unknown, "Unknown exception happened while sending packet", e);
+            }
+        }
+
+        /// <summary>
         /// Riceve il pacchetto con il contenuto.
         /// </summary>
         /// <param name="socket">Socket della connessione da cui ricevere il pacchetto</param>
         /// <returns>Il pacchetto ricevuto</returns>
-        public static Packet<T> Receive(Socket socket)
+        public static T Receive<T>(Socket socket) where T: Serialization<T>
         {
             try
             {
                 byte[] content = new byte[ReceiveContentLen(socket)];
                 socket.Receive(content);
-                T contentDecoded = Serialization<T>.Decode(content);
-                return new Packet<T>(contentDecoded);
+                return Serialization<T>.Decode(content);
             }
             catch (ArgumentNullException e)
             {
