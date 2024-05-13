@@ -1,5 +1,6 @@
 ﻿using System;
 using System.Collections.Generic;
+using System.Data.SqlTypes;
 using System.Linq;
 using System.Net.Http.Headers;
 using System.Net.Sockets;
@@ -43,7 +44,22 @@ namespace UNOCardGame
     /// Classe contenente tutte le funzioni necessarie per mandare e ricevere pacchetti.
     /// La grandezza massima di un pacchetto è sizeof(ushort) (65535 bytes)
     /// </summary>
-    public class Packet {
+    public static class Packet {
+        /// <summary>
+        /// Disconnessione, possibilmente temporanea, dal server.
+        /// </summary>
+        public const short ConnectionEnd = -1;
+
+        /// <summary>
+        /// Disconnessione permanente dal server.
+        /// </summary>
+        public const short ClientEnd = -2;
+
+        /// <summary>
+        /// Messaggio mandato ai client quando viene chiuso il server.
+        /// </summary>
+        public const short ServerEnd = -3;
+
         /// <summary>
         /// Manda il numero di byte del contenuto da mandare.
         /// </summary>
@@ -87,7 +103,7 @@ namespace UNOCardGame
             }
             catch (ArgumentNullException e)
             {
-                throw new PacketException(PacketExceptions.InvalidArgument, "A passed argument was null while receiving name", e);
+                throw new PacketException(PacketExceptions.InvalidArgument, "A passed argument was null while receiving packet", e);
             }
             catch (SocketException e)
             {
@@ -95,22 +111,24 @@ namespace UNOCardGame
             }
             catch (Exception e)
             {
-                throw new PacketException(PacketExceptions.Unknown, "Unknown exception happened while receiving name", e);
+                throw new PacketException(PacketExceptions.Unknown, "Unknown exception happened while receiving packet", e);
             }
         }
 
         /// <summary>
-        /// Riceve il nome del pacchetto che sta venendo ricevuto.
+        /// Riceve il tipo del pacchetto che sta venendo ricevuto.
         /// </summary>
-        /// <param name="socket">Socket della connessione da cui ricevere il nome</param>
-        /// <returns></returns>
-        public static string ReceiveName(Socket socket)
+        /// <param name="socket">Socket della connessione da cui ricevere il tipo di pacchetto</param>
+        /// <returns>L'ID del tipo del pacchetto</returns>
+        public static short ReceiveType(Socket socket)
         {
             try
             {
-                byte[] name = new byte[ReceiveContentLen(socket)];
-                socket.Receive(name);
-                return Encoding.UTF8.GetString(name);
+                byte[] type = new byte[sizeof(short)];
+                socket.Receive(type);
+                if (BitConverter.IsLittleEndian)
+                    Array.Reverse(type);
+                return BitConverter.ToInt16(type, 0);
             }
             catch (ArgumentNullException e)
             {
@@ -131,22 +149,37 @@ namespace UNOCardGame
         }
 
         /// <summary>
-        /// Manda il pacchetto.
+        /// Manda il pacchetto. Se il contenuto del pacchetto è nullo, manda solo l'ID del pacchetto (packetType).
+        /// Sia il contenuto che il tipo del pacchetto non possono essere null contemporaneamente.
         /// </summary>
-        /// <param name="socket">Socket della connessione a cui mandare il pacchetto</param>
-        public static void Send<T>(Socket socket, T content, string packetName = nameof(T)) where T: Serialization<T>
+        /// <typeparam name="T"></typeparam>
+        /// <param name="socket">Connessione a cui mandare il pacchetto</param>
+        /// <param name="content">Contenuto del pacchetto</param>
+        /// <param name="packetType">Tipo del pacchetto</param>
+        /// <exception cref="PacketException"></exception>
+        public static void Send<T>(Socket socket, T content, short? packetType = null) where T: Serialization<T>, INullable
         {
             try
             {
-                // Manda nome del pacchetto
-                byte[] name = Encoding.UTF8.GetBytes(packetName);
-                SendContentLen(socket, (ushort)name.Length);
-                socket.Send(name);
+                // Manda il nome del pacchetto
+                byte[] type;
+                if (content is T _contentValue)
+                    type = BitConverter.GetBytes(_contentValue.PacketId);
+                else if (packetType is short packetTypeValue)
+                    type = BitConverter.GetBytes(packetTypeValue);
+                else
+                    throw new ArgumentNullException("Both content and packet type are null.");
+                if (BitConverter.IsLittleEndian)
+                    Array.Reverse(type);
+                socket.Send(type);
 
-                // Manda contenuto del pacchetto
-                byte[] contentBuf = content.Encode();
-                SendContentLen(socket, (ushort)contentBuf.Length);
-                socket.Send(contentBuf);
+                // Manda il contenuto del pacchetto (se c'è)
+                if (content is T contentValue)
+                {
+                    byte[] contentBuf = contentValue.Encode();
+                    SendContentLen(socket, (ushort)contentBuf.Length);
+                    socket.Send(contentBuf);
+                }
             }
             catch (OverflowException e)
             {
@@ -175,7 +208,7 @@ namespace UNOCardGame
         }
 
         /// <summary>
-        /// Riceve il pacchetto con il contenuto.
+        /// Riceve il contenuto del pacchetto.
         /// </summary>
         /// <param name="socket">Socket della connessione da cui ricevere il pacchetto</param>
         /// <returns>Il pacchetto ricevuto</returns>

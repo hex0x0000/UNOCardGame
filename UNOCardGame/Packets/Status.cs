@@ -54,6 +54,16 @@ namespace UNOCardGame.Packets
         [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
         public E PayloadErr { get; }
 
+        public override short PacketId => 0;
+
+        /// <summary>
+        /// Metodo util per ritornare il PacketId in maniera statica
+        /// </summary>
+        /// <returns>Packet ID di questa classe</returns>
+        public static short GetPacketId() => new Status<object, object>().PacketId;
+
+        private Status() { }
+
         public Status(StatusCode code)
         {
             Code = code; PayloadOk = null; PayloadErr = null;

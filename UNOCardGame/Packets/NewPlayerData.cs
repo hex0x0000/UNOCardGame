@@ -16,6 +16,16 @@ namespace UNOCardGame.Packets
         public Player Player { get; }
         public ulong AccessCode { get; }
 
+        public override short PacketId => 3;
+
+        /// <summary>
+        /// Metodo util per ritornare il PacketId in maniera statica
+        /// </summary>
+        /// <returns>Packet ID di questa classe</returns>
+        public static short GetPacketId() => new NewPlayerData().PacketId;
+
+        private NewPlayerData() { }
+
         [JsonConstructor]
         public NewPlayerData(Player player, ulong accessCode) { Player = player; AccessCode = accessCode; }
     }

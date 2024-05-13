@@ -25,34 +25,58 @@ namespace UNOCardGame
         /// </summary>
         private bool runFlag = true;
 
-        private bool hasStarted = false;
+        //private bool hasStarted = false;
 
-        private bool turnId;
+        //private bool turnId;
 
         /// <summary>
-        /// Il socket del server.
-        /// Viene usato per la comunicazione con i client.
+        /// Indirizzo IP su cui ascolta il server.
         /// </summary>
-        private Socket server;
+        private readonly IPAddress _Address;
+
+        /// <summary>
+        /// Porta su cui ascolta il server.
+        /// </summary>
+        private readonly ushort _Port;
 
         /// <summary>
         /// Tiene conto del numero degli id.
         /// Il numero degli ID deve essere ordinato per mantenere l'ordine dei turni.
         /// </summary>
-        private uint idCount = 0;
+        private uint _IdCount = 0;
+
+        /// <summary>
+        /// Handler del thread che gestisce le nuove connessioni.
+        /// </summary>
+        private Thread _ListenerHandler;
+
+        /// <summary>
+        /// Handler del thread che gestisce il broadcasting.
+        /// </summary>
+        private Thread _BroadcasterHandler;
+
+        /// <summary>
+        /// Handler del thread che gestisce il gioco.
+        /// </summary>
+        private Thread _GameMasterHandler;
 
         /// <summary>
         /// Tutti i player del gioco, a parte l'host.
         /// Questo hashmap contiene tutti i dati necessari per comunicare con i client.
         /// </summary>
-        private Dictionary<uint, PlayerData> players = new Dictionary<uint, PlayerData>();
+        private Dictionary<uint, PlayerData> _Players = new Dictionary<uint, PlayerData>();
+
+        /// <summary>
+        /// Mutex che coordina l'accesso a _Players
+        /// </summary>
+        private static Mutex _PlayersMutex = new Mutex();
 
         /// <summary>
         /// I dati di ogni player.
         /// Contiene il codice di accesso, il server per comunicare con il client
         /// e le informazioni del player.
         /// </summary>
-        private struct PlayerData
+        private class PlayerData
         {
             /// <summary>
             /// Constructor di PlayerData. Genera automaticamente l'access code.
@@ -71,6 +95,7 @@ namespace UNOCardGame
                 Client = client;
                 ClientHandler = clientHandler;
                 Player = new Player(id, player.Name, player.Personalizations);
+                IsOnline = true;
             }
 
             /// <summary>
@@ -82,7 +107,7 @@ namespace UNOCardGame
             /// <summary>
             /// Socket della connessione al client. 
             /// </summary>
-            public Socket Client { get; }
+            public Socket Client { get; set; }
 
             /// <summary>
             /// Thread dell'handler del client.
@@ -98,13 +123,65 @@ namespace UNOCardGame
             /// Il deck del giocatore.
             /// </summary>
             public List<Card> Deck { get; }
+
+            /// <summary>
+            /// Segna se il giocatore è online o meno.
+            /// </summary>
+            public bool IsOnline { get; set; }
         }
 
-        public Server(string address, short port)
+        public Server(string address, ushort port)
         {
-            IPEndPoint ipEndpoint = new IPEndPoint(IPAddress.Parse(address), port);
-            server = new Socket(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp);
-            server.Bind(ipEndpoint);
+            _Address = IPAddress.Parse(address);
+            _Port = port;
+        }
+
+        ~Server()
+        {
+            StopServer();
+            _PlayersMutex.Dispose();
+        }
+
+        public void StartServer()
+        {
+            // TODO: Gamemaster
+
+            // Broadcaster
+            _BroadcasterHandler = new Thread(() => BroadCaster());
+            _BroadcasterHandler.Start();
+
+            // Listener
+            _ListenerHandler = new Thread(() => Listen());
+            _ListenerHandler.Start();
+        }
+
+        public void StopServer()
+        {
+            const int timeOut = 5000;
+
+            if (_ListenerHandler.ThreadState == ThreadState.Running)
+                _ListenerHandler.Join(timeOut);
+
+            if (_BroadcasterHandler.ThreadState == ThreadState.Running)
+                _BroadcasterHandler.Join(timeOut);
+
+            //if (_GamemasterHandler.ThreadState == ThreadState.Running)
+            //    _GamemasterHandler.Join(timeOut);
+
+            foreach (var player in _Players)
+            {
+                Log.Info($"Terminating {player.Value.ClientHandler.Name}...");
+                player.Value.ClientHandler.Join(timeOut);
+                try
+                {
+                    if (player.Value.IsOnline)
+                        player.Value.Client.Close();
+                }
+                catch (Exception e)
+                {
+                    Log.Error($"Failed to close client: {e}");
+                }
+            }
         }
 
         /// <summary>
@@ -117,19 +194,20 @@ namespace UNOCardGame
         /// Gestisce le richieste di ogni client. Ogni client ha un suo thread apposito.
         /// </summary>
         /// <param name="client">Il client dato come parametro durantre la creazione del nuovo thread</param>
-        private void ClientHandler(Socket client)
+        private void ClientHandler(Socket client, uint id)
         {
             while (true)
             {
                 try
                 {
-                    string packetName = Packet.ReceiveName(client);
-                    switch (packetName)
+                    switch (Packet.ReceiveType(client))
                     {
-                        case nameof(ChatMessage):
+                        case ChatMessage.GetPacketId():
                             break;
-                        case "Disconnect":
+                        case Packet.ConnectionEnd:
                             goto close;
+                        case Packet.ClientEnd:
+                            goto abandon;
                         default:
                             Packet.CancelReceive(client);
                             var status = new Status<object, string>("Nome del pacchetto non valido");
@@ -143,21 +221,35 @@ namespace UNOCardGame
                 catch (PacketException e)
                 {
                     Log.Error(client, $"Packet exception happened while handling client: {e}");
-                    switch (e.ExceptionType)
-                    {
-                        case PacketExceptions.SocketFailed:
-                            goto close;
-                        default:
-                            continue;
-                    }
+                    goto close;
                 }
                 catch (Exception e)
                 {
                     Log.Error(client, $"Exception happened while handling client: {e}");
                     goto close;
                 }
+
+            // Disconnessione possibilmente temporanea del client
+            // I dati del client vengono mantenuti in memoria.
             close:
                 Log.Info(client, "Disconnecting client...");
+                _PlayersMutex.WaitOne();
+                if (_Players.TryGetValue(id, out var player))
+                {
+                    player.IsOnline = false;
+                    player.Client = null;
+                }
+                _PlayersMutex.ReleaseMutex();
+                client.Close();
+                return;
+
+            // Disconnessione permanente del client.
+            // I dati del giocatore vengono rimossi dalla memoria.
+            abandon:
+                Log.Info(client, "Removing client...");
+                _PlayersMutex.WaitOne();
+                _Players.Remove(id);
+                _PlayersMutex.ReleaseMutex();
                 client.Close();
                 return;
             }
@@ -168,6 +260,10 @@ namespace UNOCardGame
         /// </summary>
         public void Listen()
         {
+            // Binding e listening all'IP e alla porta specificati
+            IPEndPoint ipEndpoint = new IPEndPoint(_Address, _Port);
+            Socket server = new Socket(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp);
+            server.Bind(ipEndpoint);
             server.Listen(1000);
             while (runFlag)
             {
@@ -197,11 +293,11 @@ namespace UNOCardGame
                             if (!hasStarted)
                             {
                                 // Nuovo ID del player
-                                uint newID = idCount;
-                                idCount++;
+                                uint newID = _IdCount;
+                                _IdCount++;
 
                                 // Handler del player
-                                var clientHandler = new Thread(() => ClientHandler(client))
+                                var clientHandler = new Thread(() => ClientHandler(client, newID))
                                 {
                                     Name = client.ToString()
                                 };
@@ -209,8 +305,10 @@ namespace UNOCardGame
                                 // Creazione struct con i dati del giocatore
                                 var playerData = new PlayerData(newID, client, clientHandler, joinRequest.NewPlayer);
 
-                                // Aggiunta player 
-                                players.Add(newID, playerData);
+                                // Aggiunta player
+                                _PlayersMutex.WaitOne();
+                                _Players.Add(newID, playerData);
+                                _PlayersMutex.ReleaseMutex();
 
                                 // Manda i nuovi dati generati dal server (ID e Access Code)
                                 var status = new Status<NewPlayerData, string>(new NewPlayerData(playerData.Player, playerData.AccessCode));

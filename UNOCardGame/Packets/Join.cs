@@ -58,6 +58,16 @@ namespace UNOCardGame.Packets
         [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
         public uint? Id { get; }
 
+        public override short PacketId => 1;
+
+        /// <summary>
+        /// Metodo util per ritornare il PacketId in maniera statica
+        /// </summary>
+        /// <returns>Packet ID di questa classe</returns>
+        public static short GetPacketId() => new Join().PacketId;
+
+        private Join() { }
+
         [JsonConstructor]
         public Join(JoinType type, Player newPlayer, ulong? accessCode, uint? id)
         {

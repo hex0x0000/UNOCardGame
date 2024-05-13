@@ -17,6 +17,16 @@ namespace UNOCardGame.Packets
 
         public string Message { get; }
 
+        public override short PacketId => 2;
+
+        /// <summary>
+        /// Metodo util per ritornare il PacketId in maniera statica
+        /// </summary>
+        /// <returns>Packet ID di questa classe</returns>
+        public static short GetPacketId() => new ChatMessage().PacketId;
+
+        private ChatMessage() { }
+
         [JsonConstructor]
         public ChatMessage(uint? fromId, string message) 
         {
