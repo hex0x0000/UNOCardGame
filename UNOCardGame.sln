@@ -1,9 +1,9 @@
-﻿
+
 Microsoft Visual Studio Solution File, Format Version 12.00
 # Visual Studio Version 16
 VisualStudioVersion = 16.0.34114.132
 MinimumVisualStudioVersion = 10.0.40219.1
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "UNOCardGame", "UNOCardGame\UNOCardGame.csproj", "{BF4F7E3F-DAF9-4117-B1FE-B13207E48A54}"
+Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "UNOCardGame", "UNOCardGame\UNOCardGame.csproj", "{BF4F7E3F-DAF9-4117-B1FE-B13207E48A54}"
 EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution

@@ -65,13 +65,13 @@ namespace UNOCardGame
         /// </summary>
         /// <param name="socket">Socket della connessione</param>
         /// <param name="n">Numero da mandare</param>
-        private static void SendContentLen(Socket socket, ushort n)
+        private async static Task SendContentLen(Socket socket, ushort n)
         {
             byte[] buffer = BitConverter.GetBytes(n);
             // Inverte l'ordine a big endian se l'architettura è little endian
             if (BitConverter.IsLittleEndian)
                 Array.Reverse(buffer);
-            socket.Send(buffer);
+            await socket.SendAsync(buffer);
         }
 
         /// <summary>
@@ -79,10 +79,10 @@ namespace UNOCardGame
         /// </summary>
         /// <param name="socket">Socket della connessione</param>
         /// <returns>Numero di byte da ricevere</returns>
-        private static ushort ReceiveContentLen(Socket socket)
+        private async static Task<ushort> ReceiveContentLen(Socket socket)
         {
             byte[] buffer = new byte[sizeof(ushort)];
-            socket.Receive(buffer);
+            await socket.ReceiveAsync(buffer);
             // Inverte l'ordine da big endian se l'architettura del PC è little endian
             if (BitConverter.IsLittleEndian)
                 Array.Reverse(buffer);
@@ -94,12 +94,12 @@ namespace UNOCardGame
         /// </summary>
         /// <param name="socket">Connessione su cui annullare la ricezione</param>
         /// <exception cref="PacketException"></exception>
-        public static void CancelReceive(Socket socket)
+        public async static Task CancelReceive(Socket socket)
         {
             try
             {
-                byte[] name = new byte[ReceiveContentLen(socket)];
-                socket.Receive(name);
+                byte[] name = new byte[await ReceiveContentLen(socket)];
+                await socket.ReceiveAsync(name);
             }
             catch (ArgumentNullException e)
             {
@@ -120,12 +120,12 @@ namespace UNOCardGame
         /// </summary>
         /// <param name="socket">Socket della connessione da cui ricevere il tipo di pacchetto</param>
         /// <returns>L'ID del tipo del pacchetto</returns>
-        public static short ReceiveType(Socket socket)
+        public async static Task<short> ReceiveType(Socket socket)
         {
             try
             {
                 byte[] type = new byte[sizeof(short)];
-                socket.Receive(type);
+                await socket.ReceiveAsync(type);
                 if (BitConverter.IsLittleEndian)
                     Array.Reverse(type);
                 return BitConverter.ToInt16(type, 0);
@@ -157,7 +157,7 @@ namespace UNOCardGame
         /// <param name="content">Contenuto del pacchetto</param>
         /// <param name="packetType">Tipo del pacchetto</param>
         /// <exception cref="PacketException"></exception>
-        public static void Send<T>(Socket socket, T content, short? packetType = null) where T: Serialization<T>, INullable
+        public async static Task Send<T>(Socket socket, T content, short? packetType = null) where T: Serialization<T>
         {
             try
             {
@@ -171,14 +171,14 @@ namespace UNOCardGame
                     throw new ArgumentNullException("Both content and packet type are null.");
                 if (BitConverter.IsLittleEndian)
                     Array.Reverse(type);
-                socket.Send(type);
+                await socket.SendAsync(type);
 
                 // Manda il contenuto del pacchetto (se c'è)
                 if (content is T contentValue)
                 {
                     byte[] contentBuf = contentValue.Encode();
-                    SendContentLen(socket, (ushort)contentBuf.Length);
-                    socket.Send(contentBuf);
+                    await SendContentLen(socket, (ushort)contentBuf.Length);
+                    await socket.SendAsync(contentBuf);
                 }
             }
             catch (OverflowException e)
@@ -212,12 +212,12 @@ namespace UNOCardGame
         /// </summary>
         /// <param name="socket">Socket della connessione da cui ricevere il pacchetto</param>
         /// <returns>Il pacchetto ricevuto</returns>
-        public static T Receive<T>(Socket socket) where T: Serialization<T>
+        public async static Task<T> Receive<T>(Socket socket) where T: Serialization<T>
         {
             try
             {
-                byte[] content = new byte[ReceiveContentLen(socket)];
-                socket.Receive(content);
+                byte[] content = new byte[await ReceiveContentLen(socket)];
+                await socket.ReceiveAsync(content);
                 return Serialization<T>.Decode(content);
             }
             catch (ArgumentNullException e)

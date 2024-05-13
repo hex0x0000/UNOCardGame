@@ -48,17 +48,17 @@ namespace UNOCardGame
         /// <summary>
         /// Handler del thread che gestisce le nuove connessioni.
         /// </summary>
-        private Thread _ListenerHandler;
+        private Task _ListenerHandler;
 
         /// <summary>
         /// Handler del thread che gestisce il broadcasting.
         /// </summary>
-        private Thread _BroadcasterHandler;
+        private Task _BroadcasterHandler;
 
         /// <summary>
         /// Handler del thread che gestisce il gioco.
         /// </summary>
-        private Thread _GameMasterHandler;
+        private Task _GameMasterHandler;
 
         /// <summary>
         /// Tutti i player del gioco, a parte l'host.
@@ -85,11 +85,11 @@ namespace UNOCardGame
             /// <param name="client"></param>
             /// <param name="clientHandler"></param>
             /// <param name="player"></param>
-            public PlayerData(uint id, Socket client, Thread clientHandler, Player player)
+            public PlayerData(uint id, Socket client, Task clientHandler, Player player)
             {
-                var random = new RNGCryptoServiceProvider();
+                var random = new Random();
                 byte[] buffer = new byte[sizeof(ulong)];
-                random.GetBytes(buffer);
+                random.NextBytes(buffer);
                 AccessCode = BitConverter.ToUInt64(buffer, 0);
                 Deck = Card.GenerateDeck(7);
                 Client = client;
@@ -112,7 +112,7 @@ namespace UNOCardGame
             /// <summary>
             /// Thread dell'handler del client.
             /// </summary>
-            public Thread ClientHandler { get; }
+            public Task ClientHandler { get; }
 
             /// <summary>
             /// Dati del player non legati alla connessione.
@@ -139,6 +139,11 @@ namespace UNOCardGame
         ~Server()
         {
             StopServer();
+            _ListenerHandler.Dispose();
+            _BroadcasterHandler.Dispose();
+            // TODO: Gamemaster
+            foreach (var player in _Players)
+                player.Value.ClientHandler.Dispose();
             _PlayersMutex.Dispose();
         }
 
@@ -147,11 +152,11 @@ namespace UNOCardGame
             // TODO: Gamemaster
 
             // Broadcaster
-            _BroadcasterHandler = new Thread(() => BroadCaster());
+            _BroadcasterHandler = new Task(async () => await Broadcaster());
             _BroadcasterHandler.Start();
 
             // Listener
-            _ListenerHandler = new Thread(() => Listen());
+            _ListenerHandler = new Task(async () => await Listen());
             _ListenerHandler.Start();
         }
 
@@ -159,19 +164,20 @@ namespace UNOCardGame
         {
             const int timeOut = 5000;
 
-            if (_ListenerHandler.ThreadState == ThreadState.Running)
-                _ListenerHandler.Join(timeOut);
+            Log.Info("Stopping listener...");
+            if (!_ListenerHandler.IsCompleted)
+                _ListenerHandler.Wait(timeOut);
 
-            if (_BroadcasterHandler.ThreadState == ThreadState.Running)
-                _BroadcasterHandler.Join(timeOut);
+            Log.Info("Stopping broadcaster...");
+            if (!_BroadcasterHandler.IsCompleted)
+                _BroadcasterHandler.Wait(timeOut);
 
-            //if (_GamemasterHandler.ThreadState == ThreadState.Running)
-            //    _GamemasterHandler.Join(timeOut);
+            // TODO: Gamemaster
 
             foreach (var player in _Players)
             {
-                Log.Info($"Terminating {player.Value.ClientHandler.Name}...");
-                player.Value.ClientHandler.Join(timeOut);
+                Log.Info($"Terminating player '{player.Value.Player.Name}'...");
+                player.Value.ClientHandler.Wait(timeOut);
                 try
                 {
                     if (player.Value.IsOnline)
@@ -188,32 +194,36 @@ namespace UNOCardGame
         /// Thread che manda i pacchetti ai client.
         /// A seconda della richiesta del Canale può mandarli a un utente specifico o a tutti.
         /// </summary>
-        private void BroadCaster() { }
+        private async Task Broadcaster() { }
 
         /// <summary>
         /// Gestisce le richieste di ogni client. Ogni client ha un suo thread apposito.
         /// </summary>
         /// <param name="client">Il client dato come parametro durantre la creazione del nuovo thread</param>
-        private void ClientHandler(Socket client, uint id)
+        private async Task ClientHandler(Socket client, uint id)
         {
             while (true)
             {
                 try
                 {
-                    switch (Packet.ReceiveType(client))
+                    short packetType = await Packet.ReceiveType(client);
+                    switch (packetType)
                     {
-                        case ChatMessage.GetPacketId():
-                            break;
                         case Packet.ConnectionEnd:
                             goto close;
                         case Packet.ClientEnd:
                             goto abandon;
                         default:
-                            Packet.CancelReceive(client);
-                            var status = new Status<object, string>("Nome del pacchetto non valido");
-                            // TODO: implementare broadcast
-                            //lock (client)
-                            //    Packet.Send(client, status);
+                            if (packetType == ChatMessage.GetPacketId())
+                            {
+                                var packet = Packet.Receive<ChatMessage>(client);
+                                // TODO: implementare handling pacchetti 
+                            }
+                            else
+                            {
+                                await Packet.CancelReceive(client);
+                                var status = new Status<object, string>("Nome del pacchetto non valido");
+                            }
                             break;
                     }
                     continue;
@@ -258,7 +268,7 @@ namespace UNOCardGame
         /// <summary>
         /// Thread che ascolta le richieste in entrata e le gestisce.
         /// </summary>
-        public void Listen()
+        public async Task Listen()
         {
             // Binding e listening all'IP e alla porta specificati
             IPEndPoint ipEndpoint = new IPEndPoint(_Address, _Port);
@@ -268,7 +278,7 @@ namespace UNOCardGame
             while (runFlag)
             {
                 // Accetta nuove connessioni 
-                var client = server.Accept();
+                var client = await server.AcceptAsync();
                 client.ReceiveTimeout = _TimeOutMillis;
                 client.SendTimeout = _TimeOutMillis;
                 Log.Info(client, "New connection");
@@ -276,17 +286,17 @@ namespace UNOCardGame
                 try
                 {
                     // Riceve il nome del pacchetto, se non è di tipo "Join" chiude la connessione
-                    string packetName = Packet.ReceiveName(client);
-                    if (packetName != nameof(Join))
+                    short packetName = await Packet.ReceiveType(client);
+                    if (packetName != Join.GetPacketId())
                     {
                         Log.Warn(client, "Client sent invalid packet while joining");
                         var status = new Status<Player, string>("Pacchetto non valido, una richiesta Join deve essere mandata");
-                        Packet.Send(client, status);
+                        await Packet.Send(client, status);
                         goto close;
                     }
 
                     // Riceve la richiesta e crea nuovi handler per ogni nuova connessione
-                    var joinRequest = Packet.Receive<Join>(client);
+                    var joinRequest = await Packet.Receive<Join>(client);
                     switch (joinRequest.Type)
                     {
                         case JoinType.Join:
@@ -297,10 +307,7 @@ namespace UNOCardGame
                                 _IdCount++;
 
                                 // Handler del player
-                                var clientHandler = new Thread(() => ClientHandler(client, newID))
-                                {
-                                    Name = client.ToString()
-                                };
+                                var clientHandler = new Task(async () => await ClientHandler(client, newID));
 
                                 // Creazione struct con i dati del giocatore
                                 var playerData = new PlayerData(newID, client, clientHandler, joinRequest.NewPlayer);
@@ -312,7 +319,7 @@ namespace UNOCardGame
 
                                 // Manda i nuovi dati generati dal server (ID e Access Code)
                                 var status = new Status<NewPlayerData, string>(new NewPlayerData(playerData.Player, playerData.AccessCode));
-                                Packet.Send(client, status);
+                                await Packet.Send(client, status);
 
                                 // Avvia handler
                                 clientHandler.Start();
@@ -321,7 +328,7 @@ namespace UNOCardGame
                             {
                                 Log.Warn(client, "New client tried to connect while playing");
                                 var status = new Status<NewPlayerData, string>("Il gioco è già iniziato");
-                                Packet.Send(client, status);
+                                await Packet.Send(client, status);
                                 goto close;
                             }
                             continue;
