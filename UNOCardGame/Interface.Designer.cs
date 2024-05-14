@@ -78,11 +78,11 @@ namespace UNOCardGame
             this.colorLabel.TabIndex = 6;
             this.colorLabel.Text = "Colore: ";
             // 
-            // _Players
+            // Players
             // 
             this.players.BorderStyle = System.Windows.Forms.BorderStyle.FixedSingle;
             this.players.Location = new System.Drawing.Point(12, 34);
-            this.players.Name = "_Players";
+            this.players.Name = "Players";
             this.players.Size = new System.Drawing.Size(360, 359);
             this.players.TabIndex = 7;
             // 

@@ -1,6 +1,8 @@
 ﻿using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Linq;
+using System.Runtime.Serialization.Formatters.Binary;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Nodes;
@@ -12,7 +14,7 @@ namespace UNOCardGame
     /// <summary>
     /// Classe che implementa la serializzazione/deserializzazione per i pacchetti mandabili via rete.
     /// </summary>
-    public abstract class Serialization<T> where T: Serialization<T>
+    public abstract class Serialization<T> where T: Serialization<T>, ICloneable
     {
         /// <summary>
         /// ID specifico di ogni pacchetto, deve essere unico.

@@ -7,6 +7,7 @@ using System.Net.Sockets;
 using System.Security.Cryptography;
 using System.Text;
 using System.Threading;
+using System.Threading.Channels;
 using System.Threading.Tasks;
 using System.Windows.Forms;
 using UNOCardGame.Packets;
@@ -18,58 +19,90 @@ namespace UNOCardGame
         /// <summary>
         /// Timeout della connessione.
         /// </summary>
-        private const int _TimeOutMillis = 50 * 1000;
+        private const int TimeOutMillis = 20 * 1000;
+
+        private int _RunFlag = 0;
 
         /// <summary>
-        /// Il server continua ad aspettare connessioni finché questa flag non viene messa a false.
+        /// Gli handler continuano a funzionare finché questa proprietà non viene messa a false.
+        /// Questa proprietà può essere modificata in modo thread-safe.
         /// </summary>
-        private bool runFlag = true;
+        private bool RunFlag
+        {
+            get => (Interlocked.CompareExchange(ref _RunFlag, 1, 1) == 0); set
+            {
+                if (value) Interlocked.CompareExchange(ref _RunFlag, 1, 0);
+                else Interlocked.CompareExchange(ref _RunFlag, 0, 1);
+            }
+        }
 
-        //private bool hasStarted = false;
+        private int _HasStarted = 0;
 
-        //private bool turnId;
+        /// <summary>
+        /// Indica se il gioco è iniziato o meno.
+        /// Questa proprietà può essere modificata in modo thread-safe.
+        /// </summary>
+        private bool HasStarted
+        {
+            get => (Interlocked.CompareExchange(ref _HasStarted, 1, 1) == 0); set
+            {
+                if (value) Interlocked.CompareExchange(ref _HasStarted, 1, 0);
+                else Interlocked.CompareExchange(ref _HasStarted, 0, 1);
+            }
+        }
+
+        /// <summary>
+        /// Tiene conto del numero degli user id.
+        /// Il numero degli ID deve essere ordinato e univoco per mantenere l'ordine dei turni.
+        /// Non thread-safe, Interlocked deve essere usato per modificare la variabile.
+        /// </summary>
+        private long IdCount = 0;
 
         /// <summary>
         /// Indirizzo IP su cui ascolta il server.
         /// </summary>
-        private readonly IPAddress _Address;
+        private readonly IPAddress Address;
 
         /// <summary>
         /// Porta su cui ascolta il server.
         /// </summary>
-        private readonly ushort _Port;
-
-        /// <summary>
-        /// Tiene conto del numero degli id.
-        /// Il numero degli ID deve essere ordinato per mantenere l'ordine dei turni.
-        /// </summary>
-        private uint _IdCount = 0;
+        private readonly ushort Port;
 
         /// <summary>
         /// Handler del thread che gestisce le nuove connessioni.
         /// </summary>
-        private Task _ListenerHandler;
+        private Task ListenerHandler;
 
         /// <summary>
         /// Handler del thread che gestisce il broadcasting.
         /// </summary>
-        private Task _BroadcasterHandler;
+        private Task BroadcasterHandler;
 
         /// <summary>
         /// Handler del thread che gestisce il gioco.
         /// </summary>
-        private Task _GameMasterHandler;
+        private Task GameMasterHandler;
 
         /// <summary>
-        /// Tutti i player del gioco, a parte l'host.
-        /// Questo hashmap contiene tutti i dati necessari per comunicare con i client.
+        /// Canale di comunicazione per gli handler.
         /// </summary>
-        private Dictionary<uint, PlayerData> _Players = new Dictionary<uint, PlayerData>();
+        private Channel<ChannelData> Communicator;
 
         /// <summary>
-        /// Mutex che coordina l'accesso a _Players
+        /// Tutti i player del gioco. Questo dictionary contiene tutti i dati necessari per comunicare con i client.
+        /// E' necessario accedervi con il mutex bloccato, dato che questo oggetto non è thread-safe.
         /// </summary>
-        private static Mutex _PlayersMutex = new Mutex();
+        private Dictionary<uint, PlayerData> Players = new Dictionary<uint, PlayerData>();
+
+        /// <summary>
+        /// Mutex che coordina l'accesso a Players
+        /// </summary>
+        private static Mutex PlayersMutex = new Mutex();
+
+        /// <summary>
+        /// Socket del server. Usato per accettare le nuove connessioni.
+        /// </summary>
+        private Socket ServerSocket;
 
         /// <summary>
         /// I dati di ogni player.
@@ -110,9 +143,9 @@ namespace UNOCardGame
             public Socket Client { get; set; }
 
             /// <summary>
-            /// Thread dell'handler del client.
+            /// Task dell'handler del client.
             /// </summary>
-            public Task ClientHandler { get; }
+            public Task ClientHandler { get; set; }
 
             /// <summary>
             /// Dati del player non legati alla connessione.
@@ -130,54 +163,81 @@ namespace UNOCardGame
             public bool IsOnline { get; set; }
         }
 
+        private struct ChannelData
+        {
+            public ChannelData(short id, object data)
+            {
+                PacketId = id; Data = data;
+            }
+
+            public readonly short PacketId;
+            public readonly object Data;
+        }
+
         public Server(string address, ushort port)
         {
-            _Address = IPAddress.Parse(address);
-            _Port = port;
+            Address = IPAddress.Parse(address);
+            Port = port;
         }
 
         ~Server()
         {
             StopServer();
-            _ListenerHandler.Dispose();
-            _BroadcasterHandler.Dispose();
+            ListenerHandler.Dispose();
+            BroadcasterHandler.Dispose();
             // TODO: Gamemaster
-            foreach (var player in _Players)
+            foreach (var player in Players)
                 player.Value.ClientHandler.Dispose();
-            _PlayersMutex.Dispose();
+            PlayersMutex.Dispose();
         }
 
         public void StartServer()
         {
+            Communicator = Channel.CreateUnbounded<ChannelData>();
+            RunFlag = true;
+
             // TODO: Gamemaster
 
             // Broadcaster
-            _BroadcasterHandler = new Task(async () => await Broadcaster());
-            _BroadcasterHandler.Start();
+            BroadcasterHandler = new Task(async () => await Broadcaster(Communicator.Reader));
+            BroadcasterHandler.Start();
 
             // Listener
-            _ListenerHandler = new Task(async () => await Listen());
-            _ListenerHandler.Start();
+            ListenerHandler = new Task(async () => await Listener(Communicator.Writer));
+            ListenerHandler.Start();
         }
 
         public void StopServer()
         {
+            // Tempo di timeout
             const int timeOut = 5000;
 
+            // Interrompe i cicli
+            RunFlag = false;
+
+            // Causa la chiusura del listener
+            ServerSocket.Close();
+            
+            // Causa la chiusura del broadcaster
+            Communicator.Writer.TryWrite(new ChannelData(Packet.ServerEnd, null));
+            Communicator.Writer.Complete();
+
             Log.Info("Stopping listener...");
-            if (!_ListenerHandler.IsCompleted)
-                _ListenerHandler.Wait(timeOut);
+            if (!ListenerHandler.IsCompleted)
+                ListenerHandler.Wait(timeOut);
 
             Log.Info("Stopping broadcaster...");
-            if (!_BroadcasterHandler.IsCompleted)
-                _BroadcasterHandler.Wait(timeOut);
+            if (!BroadcasterHandler.IsCompleted)
+                BroadcasterHandler.Wait(timeOut);
 
             // TODO: Gamemaster
 
-            foreach (var player in _Players)
+            // Termina le connessioni con i player e i loro handler
+            foreach (var player in Players)
             {
                 Log.Info($"Terminating player '{player.Value.Player.Name}'...");
-                player.Value.ClientHandler.Wait(timeOut);
+                if (!player.Value.ClientHandler.IsCompleted)
+                    player.Value.ClientHandler.Wait(timeOut);
                 try
                 {
                     if (player.Value.IsOnline)
@@ -191,24 +251,80 @@ namespace UNOCardGame
         }
 
         /// <summary>
+        /// Manda un pacchetto a tutti i client.
+        /// </summary>
+        /// <typeparam name="T">Tipo serializzabile</typeparam>
+        /// <param name="packet">Un pacchetto qualsiasi</param>
+        /// <returns></returns>
+        private async Task BroadcastAll<T>(T packet) where T : Serialization<T>, ICloneable
+        {
+            var clients = new List<Socket>();
+
+            // Copia i socket dei client per evitare di passare troppo tempo con il mutex bloccato
+            PlayersMutex.WaitOne();
+            foreach (var player in Players)
+                if (player.Value.IsOnline)
+                    clients.Add(player.Value.Client);
+            PlayersMutex.ReleaseMutex();
+
+            // Manda il messaggio a tutti i socket
+            foreach (var client in clients)
+                await Packet.Send(client, packet);
+        }
+
+        /// <summary>
         /// Thread che manda i pacchetti ai client.
         /// A seconda della richiesta del Canale può mandarli a un utente specifico o a tutti.
         /// </summary>
-        private async Task Broadcaster() { }
+        private async Task Broadcaster(ChannelReader<ChannelData> channel)
+        {
+            while (RunFlag)
+            {
+                try
+                {
+                    // Aspetta che gli vengano mandati nuovi pacchetti da mandare
+                    var packet = await channel.ReadAsync();
+                    switch (packet.PacketId)
+                    {
+                        case Packet.ServerEnd:
+                            return;
+                        default:
+                            if (packet.PacketId == ChatMessage.GetPacketId())
+                                // Un messaggio della chat può essere mandato a tutti i client
+                                await BroadcastAll((ChatMessage)packet.Data);
+                            break;
+                    }
+                }
+                catch (PacketException e)
+                {
+                    Log.Error($"Packet exception occurred while broadcasting packet: {e}");
+                }
+                catch (Exception e)
+                {
+                    Log.Error($"Exception occurred while broadcasting packet: {e}");
+                }
+            }
+        }
 
         /// <summary>
         /// Gestisce le richieste di ogni client. Ogni client ha un suo thread apposito.
         /// </summary>
-        /// <param name="client">Il client dato come parametro durantre la creazione del nuovo thread</param>
-        private async Task ClientHandler(Socket client, uint id)
+        /// <param name="client">Socket del client</param>
+        /// <param name="userId">ID del client</param>
+        /// <param name="channel">Canale di comunicazione con il broadcaster</param>
+        /// <returns></returns>
+        private async Task ClientHandler(Socket client, uint userId, ChannelWriter<ChannelData> channel)
         {
-            while (true)
+            while (RunFlag)
             {
                 try
                 {
+                    // Riceve il tipo del pacchetto
                     short packetType = await Packet.ReceiveType(client);
                     switch (packetType)
                     {
+                        // Chiude la connessione o rimuove il player a seconda della richiesta
+                        // del player.
                         case Packet.ConnectionEnd:
                             goto close;
                         case Packet.ClientEnd:
@@ -216,14 +332,12 @@ namespace UNOCardGame
                         default:
                             if (packetType == ChatMessage.GetPacketId())
                             {
-                                var packet = Packet.Receive<ChatMessage>(client);
-                                // TODO: implementare handling pacchetti 
+                                var packet = await Packet.Receive<ChatMessage>(client);
+                                packet.FromId = userId;
+                                await channel.WriteAsync(new ChannelData(packetType, packet.Clone()));
                             }
                             else
-                            {
                                 await Packet.CancelReceive(client);
-                                var status = new Status<object, string>("Nome del pacchetto non valido");
-                            }
                             break;
                     }
                     continue;
@@ -231,25 +345,23 @@ namespace UNOCardGame
                 catch (PacketException e)
                 {
                     Log.Error(client, $"Packet exception happened while handling client: {e}");
-                    goto close;
                 }
                 catch (Exception e)
                 {
                     Log.Error(client, $"Exception happened while handling client: {e}");
-                    goto close;
                 }
 
             // Disconnessione possibilmente temporanea del client
-            // I dati del client vengono mantenuti in memoria.
+            // I dati del giocatore vengono mantenuti in memoria.
             close:
                 Log.Info(client, "Disconnecting client...");
-                _PlayersMutex.WaitOne();
-                if (_Players.TryGetValue(id, out var player))
+                PlayersMutex.WaitOne();
+                if (Players.TryGetValue(userId, out var player))
                 {
                     player.IsOnline = false;
                     player.Client = null;
                 }
-                _PlayersMutex.ReleaseMutex();
+                PlayersMutex.ReleaseMutex();
                 client.Close();
                 return;
 
@@ -257,102 +369,166 @@ namespace UNOCardGame
             // I dati del giocatore vengono rimossi dalla memoria.
             abandon:
                 Log.Info(client, "Removing client...");
-                _PlayersMutex.WaitOne();
-                _Players.Remove(id);
-                _PlayersMutex.ReleaseMutex();
+                PlayersMutex.WaitOne();
+                Players.Remove(userId);
+                PlayersMutex.ReleaseMutex();
                 client.Close();
                 return;
             }
         }
 
         /// <summary>
-        /// Thread che ascolta le richieste in entrata e le gestisce.
+        /// Gestisce una nuova connessione.
+        /// A seconda della richiesta aggiunge il nuovo client ai giocatori oppure
+        /// effettua un rejoin, andando a segnare il giocatore nuovamente online.
         /// </summary>
-        public async Task Listen()
+        /// <param name="client">Nuova connessione</param>
+        /// <param name="channel">Channel per la comunicazione con il broadcaster</param>
+        /// <returns></returns>
+        private async Task NewConnectionHandler(Socket client, ChannelWriter<ChannelData> channel)
         {
-            // Binding e listening all'IP e alla porta specificati
-            IPEndPoint ipEndpoint = new IPEndPoint(_Address, _Port);
-            Socket server = new Socket(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp);
-            server.Bind(ipEndpoint);
-            server.Listen(1000);
-            while (runFlag)
+            try
             {
-                // Accetta nuove connessioni 
-                var client = await server.AcceptAsync();
-                client.ReceiveTimeout = _TimeOutMillis;
-                client.SendTimeout = _TimeOutMillis;
-                Log.Info(client, "New connection");
+                // Riceve il nome del pacchetto, se non è di tipo "Join" chiude la connessione
+                short packetName = await Packet.ReceiveType(client);
+                if (packetName != Join.GetPacketId())
+                {
+                    Log.Warn(client, "Client sent invalid packet while joining");
+                    var status = new JoinStatus("Pacchetto non valido, una richiesta Join deve essere mandata");
+                    await Packet.Send(client, status);
+                    goto close;
+                }
 
+                // Riceve la richiesta e crea un nuovo handler per la nuova connessione, se la richiesta è valida
+                var joinRequest = await Packet.Receive<Join>(client);
+                switch (joinRequest.Type)
+                {
+                    case JoinType.Join:
+                        if (!HasStarted)
+                        {
+                            // Nuovo ID del player
+                            uint newID = (uint)Interlocked.Read(ref IdCount);
+                            Interlocked.Increment(ref IdCount);
+
+                            // Handler del player
+                            var clientHandler = new Task(async () => await ClientHandler(client, newID, channel));
+
+                            // Creazione struct con i dati del giocatore
+                            var playerData = new PlayerData(newID, client, clientHandler, joinRequest.NewPlayer);
+
+                            // Aggiunta player
+                            PlayersMutex.WaitOne();
+                            Players.Add(newID, playerData);
+                            PlayersMutex.ReleaseMutex();
+
+                            // Manda i nuovi dati generati dal server (ID e Access Code)
+                            var status = new JoinStatus(new NewPlayerData(playerData.Player, playerData.AccessCode));
+                            await Packet.Send(client, status);
+
+                            // Avvia handler
+                            clientHandler.Start();
+                        }
+                        else
+                        {
+                            Log.Warn(client, "New client tried to connect while playing");
+                            var status = new JoinStatus("Il gioco è già iniziato");
+                            await Packet.Send(client, status);
+                            goto close;
+                        }
+                        return;
+                    case JoinType.Rejoin:
+                        // Controlla che sia l'id che l'access code non siano null
+                        if (joinRequest.Id is uint userId && joinRequest.AccessCode is ulong accessCode)
+                        {
+                            var clientHandler = new Task(async () => await ClientHandler(client, userId, channel));
+                            PlayersMutex.WaitOne();
+                            if (Players.TryGetValue(userId, out var player))
+                            {
+                                // Aggiunge il socket nuovo del player e lo segna come online
+                                if (player.AccessCode == accessCode)
+                                {
+                                    player.ClientHandler = clientHandler;
+                                    player.Client = client;
+                                    player.IsOnline = true;
+                                }
+                                // Se l'access code non è valido la richiesta non è valida
+                                else goto release;
+                            }
+                            // Se l'utente non esiste la richiesta non è valida
+                            else goto release;
+                            PlayersMutex.ReleaseMutex();
+                            clientHandler.Start();
+                            return;
+                        }
+                        // Se l'id o l'access code non sono presenti la richiesta non è valida,
+                        // ma si salta il ReleaseMutex() perché non è stato bloccato
+                        else goto invalid;
+
+                        release:
+                        PlayersMutex.ReleaseMutex();
+                    invalid:
+                        Log.Warn(client, "Invalid packet was sent");
+                        var rejoinStatus = new JoinStatus("La richiesta di riunirsi al gioco non è valida.");
+                        await Packet.Send(client, rejoinStatus);
+                        goto close;
+                    default:
+                        goto close;
+                }
+            }
+            catch (PacketException e)
+            {
+                Log.Error(client, $"Packet exception occurred while handling new connection: {e}");
+            }
+            catch (Exception e)
+            {
+                Log.Error(client, $"Exception occurred while handling a new connection: {e}");
+            }
+        close:
+            Log.Info(client, "Disconnecting...");
+            client.Close();
+        }
+
+        /// <summary>
+        /// Task che ascolta le richieste in entrata e avvia NewConnectionHandler() per gestirle.
+        /// </summary>
+        /// <param name="channel">Canale di comunicazione con il broadcaster</param>
+        /// <returns></returns>
+        private async Task Listener(ChannelWriter<ChannelData> channel)
+        {
+            // Creazione socket del server
+            IPEndPoint ipEndpoint = new IPEndPoint(Address, Port);
+            ServerSocket = new Socket(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp);
+
+            // Binding e listening all'IP e alla porta specificati
+            ServerSocket.Bind(ipEndpoint);
+            ServerSocket.Listen(1000);
+
+            while (RunFlag)
+            {
+                Socket client;
                 try
                 {
-                    // Riceve il nome del pacchetto, se non è di tipo "Join" chiude la connessione
-                    short packetName = await Packet.ReceiveType(client);
-                    if (packetName != Join.GetPacketId())
-                    {
-                        Log.Warn(client, "Client sent invalid packet while joining");
-                        var status = new Status<Player, string>("Pacchetto non valido, una richiesta Join deve essere mandata");
-                        await Packet.Send(client, status);
-                        goto close;
-                    }
-
-                    // Riceve la richiesta e crea nuovi handler per ogni nuova connessione
-                    var joinRequest = await Packet.Receive<Join>(client);
-                    switch (joinRequest.Type)
-                    {
-                        case JoinType.Join:
-                            if (!hasStarted)
-                            {
-                                // Nuovo ID del player
-                                uint newID = _IdCount;
-                                _IdCount++;
-
-                                // Handler del player
-                                var clientHandler = new Task(async () => await ClientHandler(client, newID));
-
-                                // Creazione struct con i dati del giocatore
-                                var playerData = new PlayerData(newID, client, clientHandler, joinRequest.NewPlayer);
-
-                                // Aggiunta player
-                                _PlayersMutex.WaitOne();
-                                _Players.Add(newID, playerData);
-                                _PlayersMutex.ReleaseMutex();
-
-                                // Manda i nuovi dati generati dal server (ID e Access Code)
-                                var status = new Status<NewPlayerData, string>(new NewPlayerData(playerData.Player, playerData.AccessCode));
-                                await Packet.Send(client, status);
-
-                                // Avvia handler
-                                clientHandler.Start();
-                            }
-                            else
-                            {
-                                Log.Warn(client, "New client tried to connect while playing");
-                                var status = new Status<NewPlayerData, string>("Il gioco è già iniziato");
-                                await Packet.Send(client, status);
-                                goto close;
-                            }
-                            continue;
-                        case JoinType.Rejoin:
-                            // TODO: implementare rejoin.
-                            continue;
-                        default:
-                            goto close;
-                    }
+                    // Accetta nuove connessioni
+                    client = await ServerSocket.AcceptAsync();
                 }
-                catch (PacketException e)
+                catch (ObjectDisposedException)
                 {
-                    Log.Error(client, $"Packet exception occurred while handling new connection: {e}");
-                    goto close;
+                    // Se il socket del server è stato chiuso termina la funzione
+                    return;
                 }
                 catch (Exception e)
                 {
-                    Log.Error(client, $"Exception occurred while handling a new connection: {e}");
-                    goto close;
+                    Log.Error($"An exception occurred while listening for new connections: {e}");
+                    continue;
                 }
-            close:
-                Log.Info(client, "Disconnecting...");
-                client.Close();
-                continue;
+
+                // Imposta il timeout
+                client.ReceiveTimeout = -1;
+                client.SendTimeout = TimeOutMillis;
+
+                // Avvia Task per l'accettazione del client
+                Log.Info(client, "New connection");
+                new Task(async () => await NewConnectionHandler(client, channel)).Start();
             }
         }
     }

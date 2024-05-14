@@ -13,7 +13,7 @@ namespace UNOCardGame
     /// <summary>
     /// Personalizzazioni del giocatore.
     /// </summary>
-    public class Personalization
+    public class Personalization : ICloneable
     {
         /// <summary>
         /// Colori possibili per il background dei giocatori.
@@ -89,12 +89,14 @@ namespace UNOCardGame
             UsernameColor = USERNAME_COLORS[random.Next(USERNAME_COLORS.Count)];
             AvatarImage = "default";
         }
+
+        public object Clone() => new Personalization(UsernameColor, BackgroundColor, (string)AvatarImage.Clone());
     }
 
     /// <summary>
     /// Classe che descrive il Giocatore, con funzioni e utilities.
     /// </summary>
-    public class Player
+    public class Player : ICloneable
     {
         /// <summary>
         /// ID del giocatore nel server. Viene usato per riconoscerlo.
@@ -137,7 +139,7 @@ namespace UNOCardGame
         /// <returns></returns>
         public Label GetAsLabel(bool isFocused)
         {
-            Label label = new Label();
+            var label = new Label();
             // TODO: Aggiungere immagine profilo
             label.AutoSize = true;
             label.Text = Name;
@@ -149,5 +151,7 @@ namespace UNOCardGame
             label.BackColor = Personalizations.BackgroundColor;
             return label;
         }
+
+        public object Clone() => new Player(Id, (string)Name.Clone(), (Personalization)Personalizations.Clone());
     }
 }
