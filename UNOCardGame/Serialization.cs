@@ -14,7 +14,7 @@ namespace UNOCardGame
     /// <summary>
     /// Classe che implementa la serializzazione/deserializzazione per i pacchetti mandabili via rete.
     /// </summary>
-    public abstract class Serialization<T> where T: Serialization<T>, ICloneable
+    public abstract class Serialization<T> where T: Serialization<T>
     {
         /// <summary>
         /// ID specifico di ogni pacchetto, deve essere unico.

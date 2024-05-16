@@ -127,8 +127,8 @@ namespace UNOCardGame
                 Deck = Card.GenerateDeck(7);
                 Client = client;
                 ClientHandler = clientHandler;
-                Player = new Player(id, player.Name, player.Personalizations);
                 IsOnline = true;
+                Player = new Player(id, Deck.Count, IsOnline, player.Name, player.Personalizations);
             }
 
             /// <summary>
@@ -150,12 +150,12 @@ namespace UNOCardGame
             /// <summary>
             /// Dati del player non legati alla connessione.
             /// </summary>
-            public Player Player { get; }
+            public Player Player { get; set; }
 
             /// <summary>
             /// Il deck del giocatore.
             /// </summary>
-            public List<Card> Deck { get; }
+            public List<Card> Deck { get; set; }
 
             /// <summary>
             /// Segna se il giocatore è online o meno.
@@ -163,15 +163,35 @@ namespace UNOCardGame
             public bool IsOnline { get; set; }
         }
 
+        /// <summary>
+        /// Dati mandati tramite il Communicator
+        /// </summary>
         private struct ChannelData
         {
             public ChannelData(short id, object data)
             {
-                PacketId = id; Data = data;
+                PacketId = id; Data = data; SendTo = null;
             }
 
+            public ChannelData(short id, object data, uint sendTo)
+            {
+                PacketId = id; Data = data; SendTo = sendTo;
+            }
+
+            /// <summary>
+            /// PacketId di Data.
+            /// </summary>
             public readonly short PacketId;
+
+            /// <summary>
+            /// Contenuto del pacchetto.
+            /// </summary>
             public readonly object Data;
+
+            /// <summary>
+            /// ID del player a cui mandare il pacchetto (opzionale).
+            /// </summary>
+            public readonly uint? SendTo;
         }
 
         public Server(string address, ushort port)
@@ -217,7 +237,7 @@ namespace UNOCardGame
 
             // Causa la chiusura del listener
             ServerSocket.Close();
-            
+
             // Causa la chiusura del broadcaster
             Communicator.Writer.TryWrite(new ChannelData(Packet.ServerEnd, null));
             Communicator.Writer.Complete();
@@ -256,7 +276,7 @@ namespace UNOCardGame
         /// <typeparam name="T">Tipo serializzabile</typeparam>
         /// <param name="packet">Un pacchetto qualsiasi</param>
         /// <returns></returns>
-        private async Task BroadcastAll<T>(T packet) where T : Serialization<T>, ICloneable
+        private async Task BroadcastAll<T>(T packet) where T : Serialization<T>
         {
             var clients = new List<Socket>();
 
@@ -269,6 +289,29 @@ namespace UNOCardGame
 
             // Manda il messaggio a tutti i socket
             foreach (var client in clients)
+                await Packet.Send(client, packet);
+        }
+
+        /// <summary>
+        /// Manda un pacchetto a un client.
+        /// </summary>
+        /// <typeparam name="T">Tipo serializzabile</typeparam>
+        /// <param name="id">ID del player a cui mandare il pacchetto</param>
+        /// <param name="packet">Un pacchetto qualsiasi</param>
+        /// <returns></returns>
+        private async Task BroadcastTo<T>(uint id, T packet) where T : Serialization<T>
+        {
+            Socket client;
+
+            // Prende il socket dalla lista dei player
+            PlayersMutex.WaitOne();
+            if (Players.TryGetValue(id, out var player))
+                client = player.Client;
+            else client = null;
+            PlayersMutex.ReleaseMutex();
+
+            // Manda il messaggio a tutti al socket se esiste, altrimenti viene ignorato
+            if (client != null)
                 await Packet.Send(client, packet);
         }
 
@@ -290,8 +333,17 @@ namespace UNOCardGame
                             return;
                         default:
                             if (packet.PacketId == ChatMessage.GetPacketId())
-                                // Un messaggio della chat può essere mandato a tutti i client
-                                await BroadcastAll((ChatMessage)packet.Data);
+                                if (packet.SendTo is uint sendTo)
+                                    await BroadcastTo(sendTo, (ChatMessage)packet.Data);
+                                else
+                                    await BroadcastAll((ChatMessage)packet.Data);
+                            else if (packet.PacketId == PlayerUpdate.GetPacketId())
+                            {
+                                if (packet.SendTo is uint sendTo)
+                                    await BroadcastTo(sendTo, (PlayerUpdate)packet.Data);
+                                else
+                                    await BroadcastAll((PlayerUpdate)packet.Data);
+                            }
                             break;
                     }
                 }
@@ -334,7 +386,7 @@ namespace UNOCardGame
                             {
                                 var packet = await Packet.Receive<ChatMessage>(client);
                                 packet.FromId = userId;
-                                await channel.WriteAsync(new ChannelData(packetType, packet.Clone()));
+                                await channel.WriteAsync(new ChannelData(packetType, packet));
                             }
                             else
                                 await Packet.CancelReceive(client);
@@ -355,6 +407,11 @@ namespace UNOCardGame
             // I dati del giocatore vengono mantenuti in memoria.
             close:
                 Log.Info(client, "Disconnecting client...");
+                
+                // Chiude la connessione
+                client.Close();
+
+                // Imposta il client offline
                 PlayersMutex.WaitOne();
                 if (Players.TryGetValue(userId, out var player))
                 {
@@ -362,19 +419,46 @@ namespace UNOCardGame
                     player.Client = null;
                 }
                 PlayersMutex.ReleaseMutex();
-                client.Close();
+
+                // Manda l'update della disconnessione
+                var playerDisconnect = new PlayerUpdate(userId, false);
+                await channel.WriteAsync(new ChannelData(playerDisconnect.PacketId, playerDisconnect));
+
                 return;
 
             // Disconnessione permanente del client.
             // I dati del giocatore vengono rimossi dalla memoria.
             abandon:
                 Log.Info(client, "Removing client...");
+                
+                // Chiude la connessione
+                client.Close();
+
+                // Rimuove il client
                 PlayersMutex.WaitOne();
                 Players.Remove(userId);
                 PlayersMutex.ReleaseMutex();
-                client.Close();
+
+                // Manda l'update della rimozione
+                var playerRemoved = new PlayerUpdate(userId);
+                await channel.WriteAsync(new ChannelData(playerRemoved.PacketId, playerRemoved));
+                
                 return;
             }
+        }
+
+        /// <summary>
+        /// Ritorna la lista con tutti i giocatori nel server.
+        /// </summary>
+        /// <returns></returns>
+        private List<Player> GetPlayersList()
+        {
+            var players = new List<Player>();
+            PlayersMutex.WaitOne();
+            foreach (var player in Players)
+                players.Add((Player)player.Value.Player.Clone());
+            PlayersMutex.ReleaseMutex();
+            return players;
         }
 
         /// <summary>
@@ -425,8 +509,18 @@ namespace UNOCardGame
                             var status = new JoinStatus(new NewPlayerData(playerData.Player, playerData.AccessCode));
                             await Packet.Send(client, status);
 
-                            // Avvia handler
+                            // Avvia il client handler
                             clientHandler.Start();
+
+                            // Manda la lista dei player al nuovo giocatore
+                            var playersList = new PlayerUpdate(GetPlayersList());
+                            await channel.WriteAsync(new ChannelData(playersList.PacketId, playersList, newID));
+
+                            // Manda il nuovo giocatore a tutti i player
+                            var newPlayer = new PlayerUpdate(playerData.Player);
+                            await channel.WriteAsync(new ChannelData(newPlayer.PacketId, newPlayer));
+
+                            return;
                         }
                         else
                         {
@@ -435,7 +529,6 @@ namespace UNOCardGame
                             await Packet.Send(client, status);
                             goto close;
                         }
-                        return;
                     case JoinType.Rejoin:
                         // Controlla che sia l'id che l'access code non siano null
                         if (joinRequest.Id is uint userId && joinRequest.AccessCode is ulong accessCode)
@@ -445,30 +538,47 @@ namespace UNOCardGame
                             if (Players.TryGetValue(userId, out var player))
                             {
                                 // Aggiunge il socket nuovo del player e lo segna come online
-                                if (player.AccessCode == accessCode)
+                                if (player.AccessCode == accessCode && !player.IsOnline)
                                 {
+                                    if (!player.ClientHandler.IsCompleted)
+                                        player.ClientHandler.Wait(1000);
+                                    player.ClientHandler.Dispose();
                                     player.ClientHandler = clientHandler;
                                     player.Client = client;
                                     player.IsOnline = true;
                                 }
-                                // Se l'access code non è valido la richiesta non è valida
-                                else goto release;
+                                // Se l'access code non è valido o il player è ancora online la richiesta non è valida
+                                else
+                                {
+                                    PlayersMutex.ReleaseMutex();
+                                    goto invalid;
+                                }
                             }
                             // Se l'utente non esiste la richiesta non è valida
-                            else goto release;
+                            else
+                            {
+                                PlayersMutex.ReleaseMutex();
+                                goto invalid;
+                            }
                             PlayersMutex.ReleaseMutex();
+
+                            // Avvia il client handler
                             clientHandler.Start();
+
+                            // Manda la lista dei player al giocatore
+                            var playersList = new PlayerUpdate(GetPlayersList());
+                            await channel.WriteAsync(new ChannelData(playersList.PacketId, playersList, userId));
+
+                            // Manda l'update dello status del player a tutti i giocatori
+                            var newPlayer = new PlayerUpdate(userId, true);
+                            await channel.WriteAsync(new ChannelData(newPlayer.PacketId, newPlayer));
+
                             return;
                         }
-                        // Se l'id o l'access code non sono presenti la richiesta non è valida,
-                        // ma si salta il ReleaseMutex() perché non è stato bloccato
-                        else goto invalid;
-
-                        release:
-                        PlayersMutex.ReleaseMutex();
+                    // Se l'id o l'access code non sono presenti la richiesta non è valida.
                     invalid:
-                        Log.Warn(client, "Invalid packet was sent");
-                        var rejoinStatus = new JoinStatus("La richiesta di riunirsi al gioco non è valida.");
+                        Log.Warn(client, "Invalid rejoin request was sent");
+                        var rejoinStatus = new JoinStatus("La richiesta per riunirsi al gioco non è valida.");
                         await Packet.Send(client, rejoinStatus);
                         goto close;
                     default:

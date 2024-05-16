@@ -12,7 +12,7 @@ namespace UNOCardGame.Packets
     /// Dati del player generati dal server mandati al client.
     /// Contiene la classe player e l'access code.
     /// </summary>
-    public class NewPlayerData : ICloneable
+    public class NewPlayerData
     {
         public Player Player { get; }
 
@@ -21,7 +21,6 @@ namespace UNOCardGame.Packets
         [JsonConstructor]
         public NewPlayerData(Player player, ulong accessCode) { Player = player; AccessCode = accessCode; }
 
-        public object Clone() => new NewPlayerData((Player)Player.Clone(), AccessCode);
     }
 
     /// <summary>
@@ -37,8 +36,10 @@ namespace UNOCardGame.Packets
     /// Risultato della richiesta Join.
     /// Contiene due payload a seconda se la richiesta è andata bene (Ok) o se c'è stato un errore (Err).
     /// </summary>
-    public class JoinStatus : Serialization<JoinStatus>, ICloneable
+    public class JoinStatus : Serialization<JoinStatus>
     {
+        public override short PacketId => 1;
+
         private static readonly int _StatusCodeEnumLength = Enum.GetValues(typeof(JoinType)).Length;
 
         private StatusCode _Code;
@@ -68,15 +69,11 @@ namespace UNOCardGame.Packets
         [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
         public string Err { get; }
 
-        public override short PacketId => 0;
-
         /// <summary>
         /// Metodo util per ritornare il PacketId in maniera statica
         /// </summary>
         /// <returns>Packet ID di questa classe</returns>
         public static short GetPacketId() => new JoinStatus().PacketId;
-
-        public object Clone() => new JoinStatus(Code, (NewPlayerData)Ok.Clone(), (string)Err.Clone());
 
         private JoinStatus() { }
 

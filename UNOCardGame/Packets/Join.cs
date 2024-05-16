@@ -20,8 +20,10 @@ namespace UNOCardGame.Packets
     /// <summary>
     /// Classe Join, mandata all'inizio della connessione per unirsi al server.
     /// </summary>
-    public class Join : Serialization<Join>, ICloneable
+    public class Join : Serialization<Join>
     {
+        public override short PacketId => 0;
+
         private static readonly int _JoinTypeEnumLength = Enum.GetValues(typeof(JoinType)).Length;
 
         private JoinType _Type;
@@ -58,15 +60,11 @@ namespace UNOCardGame.Packets
         [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
         public uint? Id { get; }
 
-        public override short PacketId => 1;
-
         /// <summary>
         /// Metodo util per ritornare il PacketId in maniera statica
         /// </summary>
         /// <returns>Packet ID di questa classe</returns>
         public static short GetPacketId() => new Join().PacketId;
-
-        public object Clone() => new Join(Type, (NewPlayer != null) ? new Player(NewPlayer.Id, NewPlayer.Name, NewPlayer.Personalizations) : null, AccessCode, Id);
 
         private Join() { }
 

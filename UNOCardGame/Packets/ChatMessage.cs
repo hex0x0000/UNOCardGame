@@ -10,8 +10,10 @@ namespace UNOCardGame.Packets
     /// <summary>
     /// Pacchetto che contiene un messaggio della chat.
     /// </summary>
-    public class ChatMessage : Serialization<ChatMessage>, ICloneable
+    public class ChatMessage : Serialization<ChatMessage>
     {
+        public override short PacketId => 2;
+
         /// <summary>
         /// ID del giocatore che ha mandato il messaggio.
         /// Null se il messaggio è stato mandato dal server.
@@ -24,15 +26,11 @@ namespace UNOCardGame.Packets
         /// </summary>
         public string Message { get; }
 
-        public override short PacketId => 2;
-
         /// <summary>
         /// Metodo util per ritornare il PacketId in maniera statica
         /// </summary>
         /// <returns>Packet ID di questa classe</returns>
         public static short GetPacketId() => new ChatMessage().PacketId;
-
-        public object Clone() => new ChatMessage(FromId, (string)Message.Clone());
 
         private ChatMessage() { }
 

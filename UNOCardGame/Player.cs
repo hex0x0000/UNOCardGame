@@ -105,6 +105,17 @@ namespace UNOCardGame
         public uint? Id { get; }
 
         /// <summary>
+        /// Specifica se il player è online o no.
+        /// </summary>
+        public bool IsOnline { get; }
+
+        /// <summary>
+        /// Numero di carte del giocatore.
+        /// </summary>
+        [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+        public int? CardsNum { get; }
+
+        /// <summary>
         /// Nome del giocatore.
         /// </summary>
         public string Name { get; }
@@ -122,10 +133,12 @@ namespace UNOCardGame
         /// <param name="name">Username del giocatore</param>
         /// <param name="personalizations">Personalizzazioni</param>
         [JsonConstructor]
-        public Player(uint? id, string name, Personalization personalizations)
+        public Player(uint? id, int? cardsNum, bool isOnline, string name, Personalization personalizations)
         {
             Id = id;
             Name = name;
+            IsOnline = isOnline;
+            CardsNum = cardsNum;
             if (personalizations != null)
                 Personalizations = personalizations;
             else
@@ -152,6 +165,6 @@ namespace UNOCardGame
             return label;
         }
 
-        public object Clone() => new Player(Id, (string)Name.Clone(), (Personalization)Personalizations.Clone());
+        public object Clone() => new Player(Id, CardsNum, IsOnline, (string)Name.Clone(), (Personalization)Personalizations.Clone());
     }
 }
