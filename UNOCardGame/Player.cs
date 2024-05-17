@@ -2,6 +2,7 @@
 using System.Collections.Generic;
 using System.Drawing;
 using System.Linq;
+using System.Runtime.Versioning;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
@@ -150,21 +151,24 @@ namespace UNOCardGame
         /// </summary>
         /// <param name="isFocused">Ingrandisce il label, usato quando è il turno di un giocatore</param>
         /// <returns></returns>
-        public Label GetAsLabel(bool isFocused)
+        [SupportedOSPlatform("windows")]
+        public Label GetAsLabel(bool isFocused) => new()
         {
-            var label = new Label();
-            // TODO: Aggiungere immagine profilo
-            label.AutoSize = true;
-            label.Text = Name;
-            if (isFocused)
-                label.Font = new Font("Microsoft Sans Serif Bold", 20F);
-            else
-                label.Font = new Font("Microsoft Sans Serif", 15F);
-            label.ForeColor = Personalizations.UsernameColor;
-            label.BackColor = Personalizations.BackgroundColor;
-            return label;
-        }
+            AutoSize = true,
+            Text = Name,
+            Font = (isFocused) ? new Font("Microsoft Sans Serif Bold", 20F) : new Font("Microsoft Sans Serif", 15F),
+            ForeColor = Personalizations.UsernameColor,
+            BackColor = Personalizations.BackgroundColor
+        };
 
         public object Clone() => new Player(Id, CardsNum, IsOnline, (string)Name.Clone(), (Personalization)Personalizations.Clone());
+
+        public override string ToString()
+        {
+            if (IsOnline is bool isOnline)
+                if (!isOnline)
+                    return $"{Name} (Offline)";
+            return Name;
+        }
     }
 }

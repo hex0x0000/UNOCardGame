@@ -41,7 +41,7 @@ namespace UNOCardGame.Packets
     /// </summary>
     public class PlayerUpdate : Serialization<PlayerUpdate>
     {
-        public override short PacketId => 3;
+        public override short PacketId => (short)PacketType.PlayerUpdate;
 
         /// <summary>
         /// Tipo dell'update.
@@ -77,14 +77,6 @@ namespace UNOCardGame.Packets
         /// </summary>
         [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
         public bool? IsOnline { get; }
-
-        /// <summary>
-        /// Metodo util per ritornare il PacketId in maniera statica.
-        /// </summary>
-        /// <returns>Packet ID di questa classe</returns>
-        public static short GetPacketId() => new PlayerUpdate().PacketId;
-
-        private PlayerUpdate() { }
 
         /// <summary>
         /// Nuovo player nel gioco.

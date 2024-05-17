@@ -25,77 +25,34 @@ namespace UNOCardGame.Packets
 
     /// <summary>
     /// Risultato della richiesta Join.
-    /// </summary>
-    public enum StatusCode
-    {
-        Success,
-        Error
-    }
-
-    /// <summary>
-    /// Risultato della richiesta Join.
     /// Contiene due payload a seconda se la richiesta è andata bene (Ok) o se c'è stato un errore (Err).
     /// </summary>
     public class JoinStatus : Serialization<JoinStatus>
     {
-        public override short PacketId => 1;
+        public override short PacketId => (short)PacketType.JoinStatus;
 
         private static readonly int _StatusCodeEnumLength = Enum.GetValues(typeof(JoinType)).Length;
-
-        private StatusCode _Code;
-
-        /// <summary>
-        /// Specifica se la richiesta è andata bene o male.
-        /// </summary>
-        public StatusCode Code
-        {
-            get => _Code; private set
-            {
-                if ((int)value < 0 || (int)value >= _StatusCodeEnumLength)
-                    throw new ArgumentOutOfRangeException(nameof(JoinType), "Enum must stay within its range");
-                _Code = value;
-            }
-        }
 
         /// <summary>
         /// Contenuto del payload se la richiesta Join andata bene.
         /// </summary>
         [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
-        public NewPlayerData Ok { get; }
+        public NewPlayerData Ok { get; } = null;
 
         /// <summary>
         /// Contenuto del payload quando la richiesta Join andata male.
         /// </summary>
         [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
-        public string Err { get; }
+        public string Err { get; } = null;
 
-        /// <summary>
-        /// Metodo util per ritornare il PacketId in maniera statica
-        /// </summary>
-        /// <returns>Packet ID di questa classe</returns>
-        public static short GetPacketId() => new JoinStatus().PacketId;
+        public JoinStatus(NewPlayerData payloadOk) => Ok = payloadOk;
 
-        private JoinStatus() { }
-
-        public JoinStatus(StatusCode code)
-        {
-            Code = code; Ok = null; Err = null;
-        }
-
-        public JoinStatus(NewPlayerData payloadOk)
-        {
-            Code = StatusCode.Success; Ok = payloadOk; Err = null;
-        }
-
-        public JoinStatus(string payloadErr)
-        {
-            Code = StatusCode.Error; Err = payloadErr; Ok = null;
-        }
+        public JoinStatus(string payloadErr) => Err = payloadErr;
 
         [JsonConstructor]
-        public JoinStatus(StatusCode code, NewPlayerData payloadOk, string payloadErr)
+        public JoinStatus(NewPlayerData payloadOk, string payloadErr)
         {
-            Code = code; Ok = payloadOk; Err = payloadErr;
+            Ok = payloadOk; Err = payloadErr;
         }
     }
 }

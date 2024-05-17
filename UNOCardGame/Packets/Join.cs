@@ -18,11 +18,11 @@ namespace UNOCardGame.Packets
     }
 
     /// <summary>
-    /// Classe Join, mandata all'inizio della connessione per unirsi al server.
+    /// Classe Join, mandata all'inizio della connessione dal client per unirsi al server.
     /// </summary>
     public class Join : Serialization<Join>
     {
-        public override short PacketId => 0;
+        public override short PacketId => (short)PacketType.Join;
 
         private static readonly int _JoinTypeEnumLength = Enum.GetValues(typeof(JoinType)).Length;
 
@@ -46,27 +46,41 @@ namespace UNOCardGame.Packets
         /// Se la connessione è nuova, manda un nuovo oggetto Player contenente le informazioni del player.
         /// </summary>
         [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
-        public Player NewPlayer { get; }
+        public Player NewPlayer { get; } = null;
 
         /// <summary>
         /// Se si tratta di una riconnessione, questo codice è necessario per l'accesso al vecchio ID.
         /// </summary>
         [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
-        public ulong? AccessCode { get; }
+        public ulong? AccessCode { get; } = null;
 
         /// <summary>
         /// ID della connessione precedente, deve essere accompagnato dall'access code per riaccedere.
         /// </summary>
         [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
-        public uint? Id { get; }
+        public uint? Id { get; } = null;
 
         /// <summary>
-        /// Metodo util per ritornare il PacketId in maniera statica
+        /// Richiesta di unirsi al gioco
         /// </summary>
-        /// <returns>Packet ID di questa classe</returns>
-        public static short GetPacketId() => new Join().PacketId;
+        /// <param name="newPlayer">I dati del nuovo player</param>
+        public Join(Player newPlayer)
+        {
+            Type = JoinType.Join;
+            NewPlayer = newPlayer;
+        }
 
-        private Join() { }
+        /// <summary>
+        /// Richiesta di riunirsi al gioco.
+        /// </summary>
+        /// <param name="id">ID del giocatore</param>
+        /// <param name="accessCode">Codice di accesso del giocatore</param>
+        public Join(uint id, ulong accessCode)
+        {
+            Type = JoinType.Rejoin;
+            AccessCode = accessCode;
+            Id = id;
+        }
 
         [JsonConstructor]
         public Join(JoinType type, Player newPlayer, ulong? accessCode, uint? id)

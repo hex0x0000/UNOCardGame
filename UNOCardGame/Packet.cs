@@ -40,6 +40,13 @@ namespace UNOCardGame
         public override string ToString() => $"{ExceptionType}: {Message}. Inner exception was {InnerException.GetType()}: {InnerException.Message}\nStacktrace: {StackTrace}";
     }
 
+    enum PacketType : short { 
+        Join,
+        JoinStatus,
+        PlayerUpdate,
+        ChatMessage
+    }
+
     /// <summary>
     /// Classe contenente tutte le funzioni necessarie per mandare e ricevere pacchetti.
     /// La grandezza massima di un pacchetto è sizeof(ushort) (65535 bytes)

@@ -7,6 +7,7 @@ using System.Windows.Forms;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using System.Data.SqlTypes;
+using System.Runtime.Versioning;
 
 namespace UNOCardGame
 {
@@ -204,10 +205,11 @@ namespace UNOCardGame
         /// </summary>
         /// <param name="fn">L'azione del bottone quando cliccato</param>
         /// <returns>Bottone</returns>
+        [SupportedOSPlatform("windows")]
         public Button GetAsButton(Func<Card, int> fn)
         {
+            // TODO: Aggiungere immagine delle carte
             Button btn = new Button();
-            //btn.Image = new Image();
             btn.Text = ToString();
             btn.Size = new System.Drawing.Size(150, 250);
             btn.Click += (args, events) => fn(this);

@@ -330,20 +330,25 @@ namespace UNOCardGame
                     switch (packet.PacketId)
                     {
                         case Packet.ServerEnd:
+                            // TODO: Broadcasting della chiusura del server
                             return;
-                        default:
-                            if (packet.PacketId == ChatMessage.GetPacketId())
+                        case (short)PacketType.ChatMessage:
+                            {
                                 if (packet.SendTo is uint sendTo)
                                     await BroadcastTo(sendTo, (ChatMessage)packet.Data);
                                 else
                                     await BroadcastAll((ChatMessage)packet.Data);
-                            else if (packet.PacketId == PlayerUpdate.GetPacketId())
+                            }
+                             break;
+                        case (short)PacketType.PlayerUpdate:
                             {
                                 if (packet.SendTo is uint sendTo)
                                     await BroadcastTo(sendTo, (PlayerUpdate)packet.Data);
                                 else
                                     await BroadcastAll((PlayerUpdate)packet.Data);
                             }
+                            break;
+                        default:
                             break;
                     }
                 }
@@ -375,24 +380,24 @@ namespace UNOCardGame
                     short packetType = await Packet.ReceiveType(client);
                     switch (packetType)
                     {
-                        // Chiude la connessione o rimuove il player a seconda della richiesta
-                        // del player.
+                        // Chiude la connessione
                         case Packet.ConnectionEnd:
                             goto close;
+                        // Rimuove il player
                         case Packet.ClientEnd:
                             goto abandon;
-                        default:
-                            if (packetType == ChatMessage.GetPacketId())
+                        case (short)PacketType.ChatMessage:
                             {
                                 var packet = await Packet.Receive<ChatMessage>(client);
                                 packet.FromId = userId;
                                 await channel.WriteAsync(new ChannelData(packetType, packet));
                             }
-                            else
-                                await Packet.CancelReceive(client);
-                            break;
+                            continue;
+                        default:
+                            Log.Warn(client, $"Client sent unknown packet type: {packetType}");
+                            await Packet.CancelReceive(client);
+                            continue;
                     }
-                    continue;
                 }
                 catch (PacketException e)
                 {
@@ -439,7 +444,7 @@ namespace UNOCardGame
                 Players.Remove(userId);
                 PlayersMutex.ReleaseMutex();
 
-                // Manda l'update della rimozione
+                // Manda l'update della rimozione del player
                 var playerRemoved = new PlayerUpdate(userId);
                 await channel.WriteAsync(new ChannelData(playerRemoved.PacketId, playerRemoved));
                 
@@ -475,7 +480,7 @@ namespace UNOCardGame
             {
                 // Riceve il nome del pacchetto, se non è di tipo "Join" chiude la connessione
                 short packetName = await Packet.ReceiveType(client);
-                if (packetName != Join.GetPacketId())
+                if (packetName != (short)PacketType.Join)
                 {
                     Log.Warn(client, "Client sent invalid packet while joining");
                     var status = new JoinStatus("Pacchetto non valido, una richiesta Join deve essere mandata");

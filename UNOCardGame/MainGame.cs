@@ -10,15 +10,19 @@ using System.Windows.Forms;
 
 namespace UNOCardGame
 {
-    public partial class Interface : Form
+    public partial class MainGame : Form
     {
-        public Interface()
+        private Client client;
+
+        public MainGame(Player player, string address, ushort port, bool isDNS)
         {
             InitializeComponent();
+            client = new Client(player, address, port, isDNS);
         }
 
         private void Interface_Load(object sender, EventArgs e)
         {
+            
         }
     }
 }
