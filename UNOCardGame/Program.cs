@@ -1,11 +1,13 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Runtime.Versioning;
 using System.Threading.Tasks;
 using System.Windows.Forms;
 
 namespace UNOCardGame
 {
+    [SupportedOSPlatform("windows")]
     static class Program
     {
         /// <summary>
@@ -16,7 +18,7 @@ namespace UNOCardGame
         {
             Application.EnableVisualStyles();
             Application.SetCompatibleTextRenderingDefault(false);
-            Application.Run(new MainGame());
+            Application.Run(new ConnectForm());
         }
     }
 }

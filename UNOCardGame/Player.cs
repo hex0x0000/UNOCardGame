@@ -61,22 +61,16 @@ namespace UNOCardGame
         }
 
         /// <summary>
-        /// Nome del file dell'immagine profilo.
-        /// </summary>
-        public string AvatarImage { get; }
-
-        /// <summary>
         /// Inizializza una nuova personalizzazione
         /// </summary>
         /// <param name="usernameColor">Colore dell'username</param>
         /// <param name="backgroundColor">Colore del background dell'username</param>
         /// <param name="avatarImage">Nome del file dell'immagine profilo (senza estensione)</param>
         [JsonConstructor]
-        public Personalization(Color usernameColor, Color backgroundColor, string avatarImage)
+        public Personalization(Color usernameColor, Color backgroundColor)
         {
             UsernameColor = usernameColor;
             BackgroundColor = backgroundColor;
-            AvatarImage = avatarImage.Replace("/", "").Replace("\\", ""); // Evita che vengano messi input che modificano il path
         }
 
         /// <summary>
@@ -88,10 +82,9 @@ namespace UNOCardGame
             var random = new Random();
             BackgroundColor = BG_COLORS[random.Next(BG_COLORS.Count)];
             UsernameColor = USERNAME_COLORS[random.Next(USERNAME_COLORS.Count)];
-            AvatarImage = "default";
         }
 
-        public object Clone() => new Personalization(UsernameColor, BackgroundColor, (string)AvatarImage.Clone());
+        public object Clone() => new Personalization(UsernameColor, BackgroundColor);
     }
 
     /// <summary>
@@ -108,13 +101,13 @@ namespace UNOCardGame
         /// <summary>
         /// Specifica se il player è online o no.
         /// </summary>
-        public bool IsOnline { get; }
+        public bool IsOnline { get; set; }
 
         /// <summary>
         /// Numero di carte del giocatore.
         /// </summary>
         [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
-        public int? CardsNum { get; }
+        public int? CardsNum { get; set; }
 
         /// <summary>
         /// Nome del giocatore.
@@ -147,19 +140,30 @@ namespace UNOCardGame
         }
 
         /// <summary>
-        /// Ritorna il label del giocatore con l'immagine profilo.
+        /// Ritorna il label del giocatore.
         /// </summary>
         /// <param name="isFocused">Ingrandisce il label, usato quando è il turno di un giocatore</param>
         /// <returns></returns>
         [SupportedOSPlatform("windows")]
-        public Label GetAsLabel(bool isFocused) => new()
+        public Label GetAsLabel(bool isFocused)
         {
-            AutoSize = true,
-            Text = Name,
-            Font = (isFocused) ? new Font("Microsoft Sans Serif Bold", 20F) : new Font("Microsoft Sans Serif", 15F),
-            ForeColor = Personalizations.UsernameColor,
-            BackColor = Personalizations.BackgroundColor
-        };
+            ToolTip toolTip = new()
+            {
+                IsBalloon = true
+            };
+            
+            Label label = new()
+            {
+                AutoSize = true,
+                Text = Name,
+                Font = (isFocused) ? new Font("Microsoft Sans Serif Bold", 20F) : new Font("Microsoft Sans Serif", 15F),
+                ForeColor = Personalizations.UsernameColor,
+                BackColor = Personalizations.BackgroundColor,
+            };
+            // Imposta un tooltip che mostra il numero di carte di questo giocatore
+            toolTip.SetToolTip(label, $"{Name} ha {CardsNum} carte");
+            return label;
+        }
 
         public object Clone() => new Player(Id, CardsNum, IsOnline, (string)Name.Clone(), (Personalization)Personalizations.Clone());
 

@@ -21,6 +21,11 @@ namespace UNOCardGame
         /// </summary>
         private const int TimeOutMillis = 20 * 1000;
 
+        /// <summary>
+        /// Generatore di numeri casuali.
+        /// </summary>
+        private static Random _Random = new Random();
+
         private int _RunFlag = 0;
 
         /// <summary>
@@ -61,7 +66,7 @@ namespace UNOCardGame
         /// <summary>
         /// Indirizzo IP su cui ascolta il server.
         /// </summary>
-        private readonly IPAddress Address;
+        private readonly string Address;
 
         /// <summary>
         /// Porta su cui ascolta il server.
@@ -120,10 +125,7 @@ namespace UNOCardGame
             /// <param name="player"></param>
             public PlayerData(uint id, Socket client, Task clientHandler, Player player)
             {
-                var random = new Random();
-                byte[] buffer = new byte[sizeof(ulong)];
-                random.NextBytes(buffer);
-                AccessCode = BitConverter.ToUInt64(buffer, 0);
+                GenAccessCode();
                 Deck = Card.GenerateDeck(7);
                 Client = client;
                 ClientHandler = clientHandler;
@@ -131,11 +133,18 @@ namespace UNOCardGame
                 Player = new Player(id, Deck.Count, IsOnline, player.Name, player.Personalizations);
             }
 
+            public void GenAccessCode()
+            {
+                byte[] buffer = new byte[sizeof(long)];
+                _Random.NextBytes(buffer);
+                AccessCode = BitConverter.ToInt64(buffer, 0);
+            }
+
             /// <summary>
             /// Il codice di accesso è necessario per evitare impersonificazioni.
             /// E' necessario anche in caso di riconnessione.
             /// </summary>
-            public ulong AccessCode { get; }
+            public long AccessCode { get; private set; }
 
             /// <summary>
             /// Socket della connessione al client. 
@@ -196,7 +205,7 @@ namespace UNOCardGame
 
         public Server(string address, ushort port)
         {
-            Address = IPAddress.Parse(address);
+            Address = address;
             Port = port;
         }
 
@@ -213,6 +222,7 @@ namespace UNOCardGame
 
         public void StartServer()
         {
+            InitSocket();
             Communicator = Channel.CreateUnbounded<ChannelData>();
             RunFlag = true;
 
@@ -394,7 +404,7 @@ namespace UNOCardGame
                             }
                             continue;
                         default:
-                            Log.Warn(client, $"Client sent unknown packet type: {packetType}");
+                            Log.Warn(client, $"Client sent an invalid packet type: {packetType}");
                             await Packet.CancelReceive(client);
                             continue;
                     }
@@ -511,7 +521,7 @@ namespace UNOCardGame
                             PlayersMutex.ReleaseMutex();
 
                             // Manda i nuovi dati generati dal server (ID e Access Code)
-                            var status = new JoinStatus(new NewPlayerData(playerData.Player, playerData.AccessCode));
+                            var status = new JoinStatus(playerData.Player, playerData.AccessCode);
                             await Packet.Send(client, status);
 
                             // Avvia il client handler
@@ -536,15 +546,18 @@ namespace UNOCardGame
                         }
                     case JoinType.Rejoin:
                         // Controlla che sia l'id che l'access code non siano null
-                        if (joinRequest.Id is uint userId && joinRequest.AccessCode is ulong accessCode)
+                        if (joinRequest.Id is uint userId && joinRequest.AccessCode is long accessCode)
                         {
                             var clientHandler = new Task(async () => await ClientHandler(client, userId, channel));
+                            long newAccessCode;
                             PlayersMutex.WaitOne();
                             if (Players.TryGetValue(userId, out var player))
                             {
                                 // Aggiunge il socket nuovo del player e lo segna come online
                                 if (player.AccessCode == accessCode && !player.IsOnline)
                                 {
+                                    player.GenAccessCode();
+                                    newAccessCode = player.AccessCode;
                                     if (!player.ClientHandler.IsCompleted)
                                         player.ClientHandler.Wait(1000);
                                     player.ClientHandler.Dispose();
@@ -567,6 +580,10 @@ namespace UNOCardGame
                             }
                             PlayersMutex.ReleaseMutex();
 
+                            // Manda il nuovo access code
+                            var rejoinStatusOk = new JoinStatus(newAccessCode);
+                            await Packet.Send(client, rejoinStatusOk);
+
                             // Avvia il client handler
                             clientHandler.Start();
 
@@ -583,10 +600,11 @@ namespace UNOCardGame
                     // Se l'id o l'access code non sono presenti la richiesta non è valida.
                     invalid:
                         Log.Warn(client, "Invalid rejoin request was sent");
-                        var rejoinStatus = new JoinStatus("La richiesta per riunirsi al gioco non è valida.");
-                        await Packet.Send(client, rejoinStatus);
+                        var rejoinStatusErr = new JoinStatus("La richiesta per riunirsi al gioco non è valida.");
+                        await Packet.Send(client, rejoinStatusErr);
                         goto close;
                     default:
+                        Log.Warn(client, $"Invalid join request was sent: {joinRequest.Type}");
                         goto close;
                 }
             }
@@ -604,20 +622,26 @@ namespace UNOCardGame
         }
 
         /// <summary>
+        /// Inizializza il SocketServer e fa il binding dell'endpoint.
+        /// </summary>
+        private void InitSocket()
+        {
+            // Creazione socket del server
+            IPEndPoint ipEndpoint = new IPEndPoint(IPAddress.Parse(Address), Port);
+            ServerSocket = new Socket(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp);
+
+            // Binding e listening all'IP e alla porta specificati
+            ServerSocket.Bind(ipEndpoint);
+        }
+
+        /// <summary>
         /// Task che ascolta le richieste in entrata e avvia NewConnectionHandler() per gestirle.
         /// </summary>
         /// <param name="channel">Canale di comunicazione con il broadcaster</param>
         /// <returns></returns>
         private async Task Listener(ChannelWriter<ChannelData> channel)
         {
-            // Creazione socket del server
-            IPEndPoint ipEndpoint = new IPEndPoint(Address, Port);
-            ServerSocket = new Socket(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp);
-
-            // Binding e listening all'IP e alla porta specificati
-            ServerSocket.Bind(ipEndpoint);
             ServerSocket.Listen(1000);
-
             while (RunFlag)
             {
                 Socket client;

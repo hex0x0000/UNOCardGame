@@ -52,7 +52,7 @@ namespace UNOCardGame.Packets
         /// Se si tratta di una riconnessione, questo codice è necessario per l'accesso al vecchio ID.
         /// </summary>
         [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
-        public ulong? AccessCode { get; } = null;
+        public long? AccessCode { get; } = null;
 
         /// <summary>
         /// ID della connessione precedente, deve essere accompagnato dall'access code per riaccedere.
@@ -75,7 +75,7 @@ namespace UNOCardGame.Packets
         /// </summary>
         /// <param name="id">ID del giocatore</param>
         /// <param name="accessCode">Codice di accesso del giocatore</param>
-        public Join(uint id, ulong accessCode)
+        public Join(uint id, long accessCode)
         {
             Type = JoinType.Rejoin;
             AccessCode = accessCode;
@@ -83,7 +83,7 @@ namespace UNOCardGame.Packets
         }
 
         [JsonConstructor]
-        public Join(JoinType type, Player newPlayer, ulong? accessCode, uint? id)
+        public Join(JoinType type, Player newPlayer, long? accessCode, uint? id)
         {
             Type = type; NewPlayer = newPlayer; AccessCode = accessCode; Id = id;
         }

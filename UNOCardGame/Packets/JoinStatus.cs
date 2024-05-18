@@ -9,21 +9,6 @@ using System.Threading.Tasks;
 namespace UNOCardGame.Packets
 {
     /// <summary>
-    /// Dati del player generati dal server mandati al client.
-    /// Contiene la classe player e l'access code.
-    /// </summary>
-    public class NewPlayerData
-    {
-        public Player Player { get; }
-
-        public ulong AccessCode { get; }
-
-        [JsonConstructor]
-        public NewPlayerData(Player player, ulong accessCode) { Player = player; AccessCode = accessCode; }
-
-    }
-
-    /// <summary>
     /// Risultato della richiesta Join.
     /// Contiene due payload a seconda se la richiesta è andata bene (Ok) o se c'è stato un errore (Err).
     /// </summary>
@@ -34,10 +19,15 @@ namespace UNOCardGame.Packets
         private static readonly int _StatusCodeEnumLength = Enum.GetValues(typeof(JoinType)).Length;
 
         /// <summary>
-        /// Contenuto del payload se la richiesta Join andata bene.
+        /// Informazioni del nuovo player
         /// </summary>
         [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
-        public NewPlayerData Ok { get; } = null;
+        public Player Player { get; } = null;
+
+        /// <summary>
+        /// Nuovo access code
+        /// </summary>
+        public long? AccessCode { get; } = null;
 
         /// <summary>
         /// Contenuto del payload quando la richiesta Join andata male.
@@ -45,14 +35,20 @@ namespace UNOCardGame.Packets
         [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
         public string Err { get; } = null;
 
-        public JoinStatus(NewPlayerData payloadOk) => Ok = payloadOk;
+        public JoinStatus(Player player, long accessCode)
+        {
+            Player = player;
+            AccessCode = accessCode;
+        }
+
+        public JoinStatus(long accessCode) => AccessCode = accessCode;
 
         public JoinStatus(string payloadErr) => Err = payloadErr;
 
         [JsonConstructor]
-        public JoinStatus(NewPlayerData payloadOk, string payloadErr)
+        public JoinStatus(Player player, long accessCode, string payloadErr)
         {
-            Ok = payloadOk; Err = payloadErr;
+            Player = player; AccessCode = accessCode; Err = payloadErr;
         }
     }
 }

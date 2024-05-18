@@ -55,7 +55,7 @@ namespace UNOCardGame.Packets
         public List<Player> Players { get; }
 
         /// <summary>
-        /// Player se si tratta di un NewPlayer
+        /// Player se si tratta di un Player
         /// </summary>
         [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
         public Player Player { get; }
