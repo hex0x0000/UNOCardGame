@@ -153,6 +153,7 @@ namespace UNOCardGame
             msgSendButton.TabIndex = 14;
             msgSendButton.Text = "Manda";
             msgSendButton.UseVisualStyleBackColor = true;
+            msgSendButton.Click += msgSendButton_Click;
             // 
             // chat
             // 

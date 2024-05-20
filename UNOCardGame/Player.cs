@@ -12,6 +12,50 @@ using System.Windows.Forms;
 namespace UNOCardGame
 {
     /// <summary>
+    /// Rappresenta un colore che può essere serializzato e mandato.
+    /// Contiene tutte le funzioni per interfacciarsi con Color
+    /// </summary>
+    public class PlayerColor : ICloneable, IEquatable<PlayerColor>, IEquatable<Color>
+    {
+        /// <summary>
+        /// Rosso
+        /// </summary>
+        public byte R { get; }
+
+        /// <summary>
+        /// Verde
+        /// </summary>
+        public byte G { get; }
+
+        /// <summary>
+        /// Blu
+        /// </summary>
+        public byte B { get; }
+
+        /// <summary>
+        /// Opacità (alpha)
+        /// </summary>
+        public byte A { get; }
+
+        /// <summary>
+        /// Costruisce PlayerColor partendo da Color
+        /// </summary>
+        /// <param name="color"></param>
+        public PlayerColor(Color color) { R = color.R; G = color.G; B = color.B; A = color.A; }
+
+        [JsonConstructor]
+        public PlayerColor(byte r, byte g, byte b, byte a) { R = r; G = g; B = b; A = a; }
+
+        public Color ToColor() => Color.FromArgb(R, G, B, A);
+
+        public object Clone() => new PlayerColor(R, G, B, A);
+
+        public bool Equals(PlayerColor other) => R == other.R && G == other.G && B == other.B && A == other.A;
+
+        public bool Equals(Color other) => R == other.R && G == other.G && B == other.B && A == other.A;
+    }
+
+    /// <summary>
     /// Personalizzazioni del giocatore.
     /// </summary>
     public class Personalization : ICloneable
@@ -20,20 +64,20 @@ namespace UNOCardGame
         /// Colori possibili per il background dei giocatori.
         /// </summary>
         [JsonIgnore]
-        public static readonly List<Color> BG_COLORS = new List<Color>() { Color.White, Color.Beige, Color.DimGray };
+        public static readonly List<PlayerColor> BG_COLORS = new() { new(Color.White), new(Color.Beige), new(Color.DimGray) };
 
         /// <summary>
         /// Colori possibili per l'username dei giocatori.
         /// </summary>
         [JsonIgnore]
-        public static readonly List<Color> USERNAME_COLORS = new List<Color> { Color.Black, Color.DeepSkyBlue, Color.DarkRed };
+        public static readonly List<PlayerColor> USERNAME_COLORS = new() { new(Color.Black), new(Color.DeepSkyBlue), new(Color.DarkRed) };
 
-        private Color _UsernameColor;
+        private PlayerColor _UsernameColor;
 
         /// <summary>
         /// Colore dell'username.
         /// </summary>
-        public Color UsernameColor
+        public PlayerColor UsernameColor
         {
             get => _UsernameColor;
             private set
@@ -44,12 +88,12 @@ namespace UNOCardGame
             }
         }
 
-        private Color _BackgroundColor;
+        private PlayerColor _BackgroundColor;
 
         /// <summary>
         /// Colore del background dell'utente.
         /// </summary>
-        public Color BackgroundColor
+        public PlayerColor BackgroundColor
         {
             get => _BackgroundColor;
             private set
@@ -67,7 +111,7 @@ namespace UNOCardGame
         /// <param name="backgroundColor">Colore del background dell'username</param>
         /// <param name="avatarImage">Nome del file dell'immagine profilo (senza estensione)</param>
         [JsonConstructor]
-        public Personalization(Color usernameColor, Color backgroundColor)
+        public Personalization(PlayerColor usernameColor, PlayerColor backgroundColor)
         {
             UsernameColor = usernameColor;
             BackgroundColor = backgroundColor;
@@ -101,7 +145,8 @@ namespace UNOCardGame
         /// <summary>
         /// Specifica se il player è online o no.
         /// </summary>
-        public bool IsOnline { get; set; }
+        [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+        public bool? IsOnline { get; set; }
 
         /// <summary>
         /// Numero di carte del giocatore.
@@ -120,6 +165,12 @@ namespace UNOCardGame
         [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
         public Personalization Personalizations { get; }
 
+        public Player(string name)
+        {
+            Name = name;
+            Personalizations = new Personalization();
+        }
+
         /// <summary>
         /// Constructor del giocatore, usato anche durante la deserializzazione da JSON.
         /// </summary>
@@ -127,7 +178,7 @@ namespace UNOCardGame
         /// <param name="name">Username del giocatore</param>
         /// <param name="personalizations">Personalizzazioni</param>
         [JsonConstructor]
-        public Player(uint? id, int? cardsNum, bool isOnline, string name, Personalization personalizations)
+        public Player(uint? id, int? cardsNum, bool? isOnline, string name, Personalization personalizations)
         {
             Id = id;
             Name = name;
@@ -151,14 +202,14 @@ namespace UNOCardGame
             {
                 IsBalloon = true
             };
-            
+
             Label label = new()
             {
                 AutoSize = true,
                 Text = Name,
                 Font = (isFocused) ? new Font("Microsoft Sans Serif Bold", 20F) : new Font("Microsoft Sans Serif", 15F),
-                ForeColor = Personalizations.UsernameColor,
-                BackColor = Personalizations.BackgroundColor,
+                ForeColor = Personalizations.UsernameColor.ToColor(),
+                BackColor = Personalizations.BackgroundColor.ToColor(),
             };
             // Imposta un tooltip che mostra il numero di carte di questo giocatore
             toolTip.SetToolTip(label, $"{Name} ha {CardsNum} carte");

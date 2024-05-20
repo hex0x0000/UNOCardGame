@@ -2,12 +2,15 @@
 using System.Collections.Generic;
 using System.Drawing;
 using System.Linq;
+using System.Linq.Expressions;
 using System.Net;
 using System.Net.Sockets;
 using System.Numerics;
 using System.Reflection.Metadata.Ecma335;
+using System.Runtime.Versioning;
 using System.Text;
 using System.Threading;
+using System.Threading.Channels;
 using System.Threading.Tasks;
 using System.Windows.Forms;
 using UNOCardGame.Packets;
@@ -28,6 +31,7 @@ namespace UNOCardGame
         public readonly string Message;
     }
 
+    [SupportedOSPlatform("windows")]
     public class Client
     {
         private int _RunFlag;
@@ -37,7 +41,7 @@ namespace UNOCardGame
         /// </summary>
         private bool RunFlag
         {
-            get => (Interlocked.CompareExchange(ref _RunFlag, 1, 1) == 0); set
+            get => (Interlocked.CompareExchange(ref _RunFlag, 1, 1) == 1); set
             {
                 if (value) Interlocked.CompareExchange(ref _RunFlag, 1, 0);
                 else Interlocked.CompareExchange(ref _RunFlag, 0, 1);
@@ -52,17 +56,17 @@ namespace UNOCardGame
         /// <summary>
         /// IP del Server. Null se l'address è un domain.
         /// </summary>
-        private string ServerIP = null;
+        public string ServerIP { get; } = null;
 
         /// <summary>
         /// DNS del Server. Null se l'address è un IP.
         /// </summary>
-        private string ServerDNS = null;
+        public string ServerDNS { get; } = null;
 
         /// <summary>
         /// Porta del server
         /// </summary>
-        private ushort ServerPort = 0;
+        public ushort ServerPort { get; } = 0;
 
         /// <summary>
         /// Connessione con il server.
@@ -85,6 +89,11 @@ namespace UNOCardGame
         private Task ListenerHandler;
 
         /// <summary>
+        /// Task che manda i pacchetti al server.
+        /// </summary>
+        private Task SenderHandler;
+
+        /// <summary>
         /// Funzione che aggiunge il messaggio alla chat nell'UI
         /// </summary>
         public IProgress<MessageDisplay> AddMsg { get; set; } = null;
@@ -93,6 +102,37 @@ namespace UNOCardGame
         /// Funzione che aggiorna i player nella UI.
         /// </summary>
         public IProgress<List<Player>> UpdatePlayers { get; set; } = null;
+
+        /// <summary>
+        /// Logger del client
+        /// </summary>
+        private Logger Log = new("CLIENT");
+
+        /// <summary>
+        /// Permette di mandare dati al Sender per mandare pacchetti
+        /// </summary>
+        private ChannelWriter<ChannelData> Writer;
+
+        /// <summary>
+        /// Dati mandati tramite il Writer
+        /// </summary>
+        private struct ChannelData
+        {
+            public ChannelData(short id, object data)
+            {
+                PacketId = id; Data = data;
+            }
+
+            /// <summary>
+            /// PacketId di Data.
+            /// </summary>
+            public readonly short PacketId;
+
+            /// <summary>
+            /// Contenuto del pacchetto.
+            /// </summary>
+            public readonly object Data;
+        }
 
         /// <summary>
         /// Inizializza il client con i dati.
@@ -116,6 +156,7 @@ namespace UNOCardGame
         /// </summary>
         public void Start()
         {
+            RunFlag = true;
             var connectTask = new Task(async () => await Connect());
             connectTask.Start();
             connectTask.Wait();
@@ -136,12 +177,54 @@ namespace UNOCardGame
         /// </summary>
         public void Close()
         {
-            ServerSocket.Close();
-            RunFlag = false;
-            if (!ListenerHandler.IsCompleted)
-                ListenerHandler.Wait(1000);
-            // TODO: Salvataggio partita nella lista delle partite fatte
+            if (ServerSocket != null)
+            {
+                ServerSocket.Close();
+                RunFlag = false;
+                if (ListenerHandler != null)
+                    if (!ListenerHandler.IsCompleted)
+                        ListenerHandler.Wait(1000);
+                // TODO: Salvataggio partita nella lista delle partite fatte
+            }
         }
+
+        /// <summary>
+        /// Manda i pacchetti al server
+        /// </summary>
+        /// <param name="read">Canale da cui riceve i pacchetti da mandare</param>
+        /// <returns></returns>
+        private async Task Sender(ChannelReader<ChannelData> read)
+        {
+            while (RunFlag)
+            {
+                try
+                {
+                    var data = await read.ReadAsync();
+                    switch (data.PacketId)
+                    {
+                        case (short)PacketType.ChatMessage:
+                            await Packet.Send(ServerSocket, (ChatMessage)data.Data);
+                            Log.Info("Chat Message sent to Server");
+                            break;
+                    }
+                }
+                catch (PacketException e)
+                {
+                    Log.Error($"Packet exception occurred: {e}");
+                }
+                catch (Exception e)
+                {
+                    Log.Error($"Exception occurred: {e}");
+                }
+            }
+        }
+
+        /// <summary>
+        /// Funzione che permette alla UI di mandare pacchetti al server
+        /// </summary>
+        /// <typeparam name="T">Serialization<T></typeparam>
+        /// <param name="packet">Pacchetto qualsiasi, supportato dal Sender</param>
+        public bool Send<T>(T packet) where T : Serialization<T> => Writer.TryWrite(new ChannelData(packet.PacketId, packet));
 
         /// <summary>
         /// Ascolta i pacchetti che arrivano dal server e li gestisce.
@@ -182,7 +265,7 @@ namespace UNOCardGame
                                         if (players.TryGetValue(fromID, out var player))
                                         {
                                             // Aggiunge il messaggio con il colore dell'username del player che l'ha mandato
-                                            var msgDisplay = new MessageDisplay(player.Personalizations.UsernameColor, player.Name, msg);
+                                            var msgDisplay = new MessageDisplay(player.Personalizations.UsernameColor.ToColor(), player.Name, msg);
                                             AddMsg.Report(msgDisplay);
                                         }
                                         else
@@ -307,6 +390,7 @@ namespace UNOCardGame
             ServerSocket.ReceiveTimeout = -1;
             ServerSocket.SendTimeout = TimeOutMillis;
             await ServerSocket.ConnectAsync(endPoint);
+            Log.Info($"Connected to server: {endPoint}");
         }
 
         /// <summary>
@@ -320,24 +404,49 @@ namespace UNOCardGame
             await Packet.Send(ServerSocket, joinRequest);
 
             // Riceve lo status della richiesta
-            var responseType = await Packet.ReceiveType(ServerSocket);
-            if (responseType == (short)PacketType.JoinStatus)
+            try
             {
-                var status = await Packet.Receive<JoinStatus>(ServerSocket);
-                if (status.Player is var playerData && status.AccessCode is long accessCode)
+                var responseType = await Packet.ReceiveType(ServerSocket);
+                if (responseType == (short)PacketType.JoinStatus)
                 {
-                    Player = playerData;
-                    AccessCode = accessCode;
-                    ListenerHandler = new Task(async () => await Listener());
-                    ListenerHandler.Start();
+                    var status = await Packet.Receive<JoinStatus>(ServerSocket);
+                    if (status.Player is var playerData && status.AccessCode is long accessCode)
+                    {
+                        // Salva i dati del player
+                        Player = playerData;
+                        AccessCode = accessCode;
+
+                        // Crea il canale di comunicazione con il Sender
+                        Channel<ChannelData> channel = Channel.CreateUnbounded<ChannelData>();
+                        Writer = channel.Writer;
+
+                        // Avvia i task della connessione
+                        ListenerHandler = new Task(async () => await Listener());
+                        ListenerHandler.Start();
+                        SenderHandler = new Task(async () => await Sender(channel.Reader));
+                        SenderHandler.Start();
+                    }
+                    else if (status.Err is var error)
+                    {
+                        ServerSocket.Close();
+                        ServerSocket = null;
+                        Log.Error($"Failed to connect to server: {error}");
+                        // TODO: Gestire l'errore
+                    }
                 }
-                else if (status.Err is var error)
+            }
+            catch (PacketException e)
+            {
+                if (e.ExceptionType == PacketExceptions.ConnectionClosed)
                 {
-                    ServerSocket.Close();
-                    ServerSocket = null;
-                    Log.Error($"Failed to connect to server: {error}");
-                    // TODO: Gestire l'errore
+                    Log.Info("Closing client...");
+                    return;
                 }
+                Log.Error($"A packet exception occurred: {e}");
+            }
+            catch (Exception e)
+            {
+                Log.Error($"An exception occurred: {e}");
             }
         }
 

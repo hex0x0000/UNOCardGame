@@ -1,6 +1,7 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.Data.SqlTypes;
+using System.Diagnostics;
 using System.Linq;
 using System.Net.Http.Headers;
 using System.Net.Sockets;
@@ -15,6 +16,7 @@ namespace UNOCardGame
     /// </summary>
     public enum PacketExceptions
     {
+        ConnectionClosed,
         SerializationFailed,
         DeserializationFailed,
         EncodingFailed,
@@ -37,10 +39,11 @@ namespace UNOCardGame
             ExceptionType = exception;
         }
 
-        public override string ToString() => $"{ExceptionType}: {Message}. Inner exception was {InnerException.GetType()}: {InnerException.Message}\nStacktrace: {StackTrace}";
+        public override string ToString() => $"{ExceptionType}: {Message}.{Environment.NewLine}Inner exception was {InnerException.GetType()}: {InnerException.Message}{Environment.NewLine}Stacktrace: {StackTrace}";
     }
 
-    enum PacketType : short { 
+    enum PacketType : short
+    {
         Join,
         JoinStatus,
         PlayerUpdate,
@@ -51,7 +54,8 @@ namespace UNOCardGame
     /// Classe contenente tutte le funzioni necessarie per mandare e ricevere pacchetti.
     /// La grandezza massima di un pacchetto è sizeof(ushort) (65535 bytes)
     /// </summary>
-    public static class Packet {
+    public static class Packet
+    {
         /// <summary>
         /// Disconnessione, possibilmente temporanea, dal server.
         /// </summary>
@@ -143,6 +147,8 @@ namespace UNOCardGame
             }
             catch (SocketException e)
             {
+                if (e.SocketErrorCode == SocketError.ConnectionReset)
+                    throw new PacketException(PacketExceptions.ConnectionClosed, "Connection was closed.", e);
                 throw new PacketException(PacketExceptions.SocketFailed, "Failed to receive name due to connection error", e);
             }
             catch (DecoderFallbackException e)
@@ -164,7 +170,7 @@ namespace UNOCardGame
         /// <param name="content">Contenuto del pacchetto</param>
         /// <param name="packetType">Tipo del pacchetto</param>
         /// <exception cref="PacketException"></exception>
-        public async static Task Send<T>(Socket socket, T content, short? packetType = null) where T: Serialization<T>
+        public async static Task Send<T>(Socket socket, T content, short? packetType = null) where T : Serialization<T>
         {
             try
             {
@@ -219,12 +225,13 @@ namespace UNOCardGame
         /// </summary>
         /// <param name="socket">Socket della connessione da cui ricevere il pacchetto</param>
         /// <returns>Il pacchetto ricevuto</returns>
-        public async static Task<T> Receive<T>(Socket socket) where T: Serialization<T>
+        public async static Task<T> Receive<T>(Socket socket) where T : Serialization<T>
         {
             try
             {
                 byte[] content = new byte[await ReceiveContentLen(socket)];
                 await socket.ReceiveAsync(content);
+                Debug.WriteLine($"Content: {Encoding.UTF8.GetString(content)}");
                 return Serialization<T>.Decode(content);
             }
             catch (ArgumentNullException e)

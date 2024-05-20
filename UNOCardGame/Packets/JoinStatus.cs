@@ -14,6 +14,7 @@ namespace UNOCardGame.Packets
     /// </summary>
     public class JoinStatus : Serialization<JoinStatus>
     {
+        [JsonIgnore]
         public override short PacketId => (short)PacketType.JoinStatus;
 
         private static readonly int _StatusCodeEnumLength = Enum.GetValues(typeof(JoinType)).Length;
@@ -27,7 +28,8 @@ namespace UNOCardGame.Packets
         /// <summary>
         /// Nuovo access code
         /// </summary>
-        public long? AccessCode { get; } = null;
+        [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+        public long? AccessCode { get; }
 
         /// <summary>
         /// Contenuto del payload quando la richiesta Join andata male.
@@ -46,9 +48,9 @@ namespace UNOCardGame.Packets
         public JoinStatus(string payloadErr) => Err = payloadErr;
 
         [JsonConstructor]
-        public JoinStatus(Player player, long accessCode, string payloadErr)
+        public JoinStatus(Player player, long? accessCode, string err)
         {
-            Player = player; AccessCode = accessCode; Err = payloadErr;
+            Player = player; AccessCode = accessCode; Err = err;
         }
     }
 }

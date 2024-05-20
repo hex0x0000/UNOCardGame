@@ -4,6 +4,7 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Net;
 using System.Net.Sockets;
+using System.Runtime.Versioning;
 using System.Security.Cryptography;
 using System.Text;
 using System.Threading;
@@ -14,6 +15,7 @@ using UNOCardGame.Packets;
 
 namespace UNOCardGame
 {
+    [SupportedOSPlatform("windows")]
     class Server
     {
         /// <summary>
@@ -34,7 +36,7 @@ namespace UNOCardGame
         /// </summary>
         private bool RunFlag
         {
-            get => (Interlocked.CompareExchange(ref _RunFlag, 1, 1) == 0); set
+            get => (Interlocked.CompareExchange(ref _RunFlag, 1, 1) == 1); set
             {
                 if (value) Interlocked.CompareExchange(ref _RunFlag, 1, 0);
                 else Interlocked.CompareExchange(ref _RunFlag, 0, 1);
@@ -49,7 +51,7 @@ namespace UNOCardGame
         /// </summary>
         private bool HasStarted
         {
-            get => (Interlocked.CompareExchange(ref _HasStarted, 1, 1) == 0); set
+            get => (Interlocked.CompareExchange(ref _HasStarted, 1, 1) == 1); set
             {
                 if (value) Interlocked.CompareExchange(ref _HasStarted, 1, 0);
                 else Interlocked.CompareExchange(ref _HasStarted, 0, 1);
@@ -66,12 +68,12 @@ namespace UNOCardGame
         /// <summary>
         /// Indirizzo IP su cui ascolta il server.
         /// </summary>
-        private readonly string Address;
+        public readonly string Address;
 
         /// <summary>
         /// Porta su cui ascolta il server.
         /// </summary>
-        private readonly ushort Port;
+        public readonly ushort Port;
 
         /// <summary>
         /// Handler del thread che gestisce le nuove connessioni.
@@ -102,12 +104,17 @@ namespace UNOCardGame
         /// <summary>
         /// Mutex che coordina l'accesso a Players
         /// </summary>
-        private static Mutex PlayersMutex = new Mutex();
+        private static Mutex PlayersMutex = new();
 
         /// <summary>
         /// Socket del server. Usato per accettare le nuove connessioni.
         /// </summary>
         private Socket ServerSocket;
+
+        /// <summary>
+        /// Logger del server
+        /// </summary>
+        private Logger Log = new("SERVER");
 
         /// <summary>
         /// I dati di ogni player.
@@ -222,17 +229,24 @@ namespace UNOCardGame
 
         public void StartServer()
         {
+            Log.Info("Initializing socket...");
             InitSocket();
+
+            Log.Info("Creating communicator...");
             Communicator = Channel.CreateUnbounded<ChannelData>();
             RunFlag = true;
+            if (RunFlag)
+                Log.Info("Run flag ok");
 
             // TODO: Gamemaster
 
             // Broadcaster
+            Log.Info("Starting broadcaster...");
             BroadcasterHandler = new Task(async () => await Broadcaster(Communicator.Reader));
             BroadcasterHandler.Start();
 
             // Listener
+            Log.Info("Starting listener...");
             ListenerHandler = new Task(async () => await Listener(Communicator.Writer));
             ListenerHandler.Start();
         }
@@ -246,36 +260,39 @@ namespace UNOCardGame
             RunFlag = false;
 
             // Causa la chiusura del listener
-            ServerSocket.Close();
-
-            // Causa la chiusura del broadcaster
-            Communicator.Writer.TryWrite(new ChannelData(Packet.ServerEnd, null));
-            Communicator.Writer.Complete();
-
-            Log.Info("Stopping listener...");
-            if (!ListenerHandler.IsCompleted)
-                ListenerHandler.Wait(timeOut);
-
-            Log.Info("Stopping broadcaster...");
-            if (!BroadcasterHandler.IsCompleted)
-                BroadcasterHandler.Wait(timeOut);
-
-            // TODO: Gamemaster
-
-            // Termina le connessioni con i player e i loro handler
-            foreach (var player in Players)
+            if (ServerSocket != null)
             {
-                Log.Info($"Terminating player '{player.Value.Player.Name}'...");
-                if (!player.Value.ClientHandler.IsCompleted)
-                    player.Value.ClientHandler.Wait(timeOut);
-                try
+                //ServerSocket.Close();
+
+                // Causa la chiusura del broadcaster
+                Communicator.Writer.TryWrite(new ChannelData(Packet.ServerEnd, null));
+                Communicator.Writer.Complete();
+
+                Log.Info("Stopping listener...");
+                if (!ListenerHandler.IsCompleted)
+                    ListenerHandler.Wait(timeOut);
+
+                Log.Info("Stopping broadcaster...");
+                if (!BroadcasterHandler.IsCompleted)
+                    BroadcasterHandler.Wait(timeOut);
+
+                // TODO: Gamemaster
+
+                // Termina le connessioni con i player e i loro handler
+                foreach (var player in Players)
                 {
-                    if (player.Value.IsOnline)
-                        player.Value.Client.Close();
-                }
-                catch (Exception e)
-                {
-                    Log.Error($"Failed to close client: {e}");
+                    Log.Info($"Terminating player '{player.Value.Player.Name}'...");
+                    if (!player.Value.ClientHandler.IsCompleted)
+                        player.Value.ClientHandler.Wait(timeOut);
+                    try
+                    {
+                        if (player.Value.IsOnline)
+                            player.Value.Client.Close();
+                    }
+                    catch (Exception e)
+                    {
+                        Log.Error($"Failed to close client: {e}");
+                    }
                 }
             }
         }
@@ -331,6 +348,7 @@ namespace UNOCardGame
         /// </summary>
         private async Task Broadcaster(ChannelReader<ChannelData> channel)
         {
+            Log.Info("Broadcaster started.");
             while (RunFlag)
             {
                 try
@@ -382,6 +400,7 @@ namespace UNOCardGame
         /// <returns></returns>
         private async Task ClientHandler(Socket client, uint userId, ChannelWriter<ChannelData> channel)
         {
+            Log.Info(client, "Started new client handler.");
             while (RunFlag)
             {
                 try
@@ -486,6 +505,7 @@ namespace UNOCardGame
         /// <returns></returns>
         private async Task NewConnectionHandler(Socket client, ChannelWriter<ChannelData> channel)
         {
+            Log.Info(client, "Started new connection handler.");
             try
             {
                 // Riceve il nome del pacchetto, se non è di tipo "Join" chiude la connessione
@@ -642,16 +662,20 @@ namespace UNOCardGame
         private async Task Listener(ChannelWriter<ChannelData> channel)
         {
             ServerSocket.Listen(1000);
+            Log.Info("Listener started.");
             while (RunFlag)
             {
                 Socket client;
                 try
                 {
                     // Accetta nuove connessioni
+                    Log.Info("Waiting for connections...");
                     client = await ServerSocket.AcceptAsync();
+                    Log.Info(client, "New connection accepted");
                 }
                 catch (ObjectDisposedException)
                 {
+                    Log.Info("Closing listener...");
                     // Se il socket del server è stato chiuso termina la funzione
                     return;
                 }
@@ -666,7 +690,7 @@ namespace UNOCardGame
                 client.SendTimeout = TimeOutMillis;
 
                 // Avvia Task per l'accettazione del client
-                Log.Info(client, "New connection");
+                Log.Info(client, "Starting handler...");
                 new Task(async () => await NewConnectionHandler(client, channel)).Start();
             }
         }

@@ -41,6 +41,7 @@ namespace UNOCardGame.Packets
     /// </summary>
     public class PlayerUpdate : Serialization<PlayerUpdate>
     {
+        [JsonIgnore]
         public override short PacketId => (short)PacketType.PlayerUpdate;
 
         /// <summary>

@@ -5,10 +5,12 @@ using System.Data;
 using System.Drawing;
 using System.Linq;
 using System.Net;
+using System.Numerics;
 using System.Runtime.Versioning;
 using System.Text;
 using System.Threading.Tasks;
 using System.Windows.Forms;
+using UNOCardGame.Packets;
 
 namespace UNOCardGame
 {
@@ -43,34 +45,50 @@ namespace UNOCardGame
         /// <summary>
         /// Inizializza i componenti legati allo stile della UI
         /// </summary>
-        void InitStyleComponents()
+        private void InitStyleComponents()
         {
             _ChatNormal = chat.Font;
             _ChatItalic = new Font(chat.Font, FontStyle.Italic);
             _ChatBold = new Font(chat.Font, FontStyle.Bold);
         }
 
+        private void InitClient(Player player, string address, ushort port, bool isDNS)
+        {
+            Client = new Client(player, address, port, isDNS);
+            
+            // Progress che fa visualizzare i nuovi messaggi
+            var appendMsg = new Progress<MessageDisplay>();
+            appendMsg.ProgressChanged += (s, message) => AppendMessage(message);
+            Client.AddMsg = appendMsg;
+
+            // Progress che fa visualizzare i nuovi player
+            var playerUpdate = new Progress<List<Player>>();
+            playerUpdate.ProgressChanged += (s, message) => DisplayPlayers(message);
+            Client.UpdatePlayers = playerUpdate;
+        }
+
         public MainGame(Player player, string address, ushort port, bool isDNS)
         {
             InitializeComponent();
             InitStyleComponents();
-            Client = new Client(player, address, port, isDNS);
+            InitClient(player, address, port, isDNS);
         }
 
         public MainGame(Player player, string address, ushort port)
         {
             InitializeComponent();
             InitStyleComponents();
-            Client = new Client(player, address, port, false);
+            InitClient(player, address, port, false);
             Server = new Server(address, port);
         }
 
         private void Interface_Load(object sender, EventArgs e)
         {
-            if (Server is var server)
+            if (Server is Server server)
             {
                 try
                 {
+                    ServiceMessage("Avvio Server...");
                     server.StartServer();
                 }
                 catch (Exception ex)
@@ -78,10 +96,12 @@ namespace UNOCardGame
                     MessageBox.Show($"Impossibile far partire il server: {ex}");
                     Close();
                 }
+                ServiceMessage("Avvio riuscito.");
             }
 
             try
             {
+                ServiceMessage($"Connessione al server ({((Client.ServerDNS != null) ? Client.ServerDNS : Client.ServerIP)}:{Client.ServerPort})...");
                 Client.Start();
             }
             catch (Exception ex)
@@ -91,6 +111,16 @@ namespace UNOCardGame
                     Server.StopServer();
                 Close();
             }
+            ServiceMessage("Connessione riuscita.");
+        }
+
+        private void msgSendButton_Click(object sender, EventArgs e)
+        {
+            string msg = msgWriteBox.Text;
+            if (msg == "")
+                return;
+            msgWriteBox.Clear();
+            Client.Send(new ChatMessage(msg));
         }
 
         /// <summary>
@@ -107,10 +137,10 @@ namespace UNOCardGame
         }
 
         /// <summary>
-        /// Aggiunge alla chat un messaggio ricevuto dal client
+        /// Aggiunge alla chat un messaggio ricevuto dal server
         /// </summary>
-        /// <param name="msg">Messaggio ricevuto dal client</param>
-        private void AppendClientMessage(MessageDisplay msg)
+        /// <param name="msg">Messaggio ricevuto dal server</param>
+        private void AppendMessage(MessageDisplay msg)
         {
             chat.SelectionStart = chat.TextLength;
             chat.SelectionLength = 0;
@@ -130,5 +160,29 @@ namespace UNOCardGame
             }
             chat.AppendText(msg.Message + Environment.NewLine);
         }
+
+        /// <summary>
+        /// Mostra la lista dei player aggiornata
+        /// </summary>
+        /// <param name="_players"></param>
+        private void DisplayPlayers(List<Player> _players)
+        {
+            players.Controls.Clear();
+            foreach (var player in _players)
+                players.Controls.Add(player.GetAsLabel(false));
+        }
+
+        /// <summary>
+        /// Comportamento alla chiusura
+        /// </summary>
+        /// <param name="e"></param>
+        protected override void OnFormClosing(FormClosingEventArgs e)
+        {
+            if (Server is Server server)
+                server.StopServer();
+            Client.Close();
+            base.OnFormClosing(e);
+        }
+
     }
 }

@@ -22,6 +22,7 @@ namespace UNOCardGame.Packets
     /// </summary>
     public class Join : Serialization<Join>
     {
+        [JsonIgnore]
         public override short PacketId => (short)PacketType.Join;
 
         private static readonly int _JoinTypeEnumLength = Enum.GetValues(typeof(JoinType)).Length;

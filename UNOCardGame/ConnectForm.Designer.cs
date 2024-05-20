@@ -106,6 +106,7 @@
             connect.TabIndex = 7;
             connect.Text = "Connettiti";
             connect.UseVisualStyleBackColor = true;
+            connect.Click += connect_Click;
             // 
             // host
             // 
@@ -115,6 +116,7 @@
             host.TabIndex = 8;
             host.Text = "Hosta la partita";
             host.UseVisualStyleBackColor = true;
+            host.Click += host_Click;
             // 
             // orLabel
             // 

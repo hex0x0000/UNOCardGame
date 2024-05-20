@@ -12,6 +12,7 @@ namespace UNOCardGame.Packets
     /// </summary>
     public class ChatMessage : Serialization<ChatMessage>
     {
+        [JsonIgnore]
         public override short PacketId => (short)PacketType.ChatMessage;
 
         /// <summary>
@@ -25,6 +26,12 @@ namespace UNOCardGame.Packets
         /// Contenuto del messaggio.
         /// </summary>
         public string Message { get; }
+
+        /// <summary>
+        /// Nuovo messaggio senza FromId
+        /// </summary>
+        /// <param name="message"></param>
+        public ChatMessage(string message) => Message = message;
 
         [JsonConstructor]
         public ChatMessage(uint? fromId, string message) 
