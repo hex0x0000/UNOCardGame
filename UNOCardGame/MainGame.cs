@@ -8,6 +8,7 @@ using System.Net;
 using System.Numerics;
 using System.Runtime.Versioning;
 using System.Text;
+using System.Threading;
 using System.Threading.Tasks;
 using System.Windows.Forms;
 using UNOCardGame.Packets;
@@ -65,6 +66,11 @@ namespace UNOCardGame
             var playerUpdate = new Progress<List<Player>>();
             playerUpdate.ProgressChanged += (s, message) => DisplayPlayers(message);
             Client.UpdatePlayers = playerUpdate;
+
+            // Progress che chiude il gioco
+            var close = new Progress<string>();
+            close.ProgressChanged += (s, message) => CloseGame(message);
+            Client.CloseUI = close;
         }
 
         public MainGame(Player player, string address, ushort port, bool isDNS)
@@ -173,16 +179,25 @@ namespace UNOCardGame
         }
 
         /// <summary>
+        /// Chiude il gioco, riportando errori in caso ci siano stati
+        /// </summary>
+        void CloseGame(string errMsg) {
+            if (errMsg != null)
+                MessageBox.Show(errMsg);
+            Close();
+        }
+
+        /// <summary>
         /// Comportamento alla chiusura
         /// </summary>
         /// <param name="e"></param>
         protected override void OnFormClosing(FormClosingEventArgs e)
         {
+            Client.Close(true);
+            Thread.Sleep(1000);
             if (Server is Server server)
                 server.StopServer();
-            Client.Close();
             base.OnFormClosing(e);
         }
-
     }
 }

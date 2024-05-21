@@ -148,7 +148,7 @@ namespace UNOCardGame
         /// </summary>
         /// <param name="socket">Socket da trasformare in stringa</param>
         /// <returns></returns>
-        private static string ToAddress(Socket socket) => ((IPEndPoint)socket.RemoteEndPoint).ToString();
+        public static string ToAddress(Socket socket) => ((IPEndPoint)socket.RemoteEndPoint).ToString();
 
         /// <summary>
         /// Funzione base che effettua il logging, le altre sono un'interfaccia per questa funzione
@@ -156,11 +156,11 @@ namespace UNOCardGame
         /// <param name="logType">Tipo del log</param>
         /// <param name="message">Messaggio del log</param>
         /// <param name="socket">Socket (opzionale)</param>
-        private void Base(string logType, string message, Socket socket)
+        private void Base(string logType, string message, string socket)
         {
             string log = $"[{logType}] [{Type}] {DateTime.Now} - {CallLocation()}";
             if (socket != null)
-                log += $" - Connection : {ToAddress(socket)}";
+                log += $" - ConnectionEnd : {socket}";
             log += $" -> {message}{Environment.NewLine}";
             if (Writer is var writer)
                 writer.TryWrite(log);
@@ -169,14 +169,20 @@ namespace UNOCardGame
 
         public void Info(string message) => Base("INFO", message, null);
 
-        public void Info(Socket socket, string message) => Base("INFO", message, socket);
+        public void Info(string socket, string message) => Base("INFO", message, socket);
+
+        public void Info(Socket socket, string message) => Base("INFO", message, ToAddress(socket));
 
         public void Warn(string message) => Base("WARN", message, null);
 
-        public void Warn(Socket socket, string message) => Base("WARN", message, socket);
+        public void Warn(string socket, string message) => Base("WARN", message, socket);
+
+        public void Warn(Socket socket, string message) => Base("WARN", message, ToAddress(socket));
 
         public void Error(string message) => Base("ERROR", message, null);
 
-        public void Error(Socket socket, string message) => Base("ERROR", message, socket);
+        public void Error(string socket, string message) => Base("ERROR", message, socket);
+
+        public void Error(Socket socket, string message) => Base("ERROR", message, ToAddress(socket));
     }
 }

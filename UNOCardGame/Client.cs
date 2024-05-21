@@ -34,20 +34,6 @@ namespace UNOCardGame
     [SupportedOSPlatform("windows")]
     public class Client
     {
-        private int _RunFlag;
-
-        /// <summary>
-        /// Il client continua ad ascoltare pacchetti finché questa flag è true
-        /// </summary>
-        private bool RunFlag
-        {
-            get => (Interlocked.CompareExchange(ref _RunFlag, 1, 1) == 1); set
-            {
-                if (value) Interlocked.CompareExchange(ref _RunFlag, 1, 0);
-                else Interlocked.CompareExchange(ref _RunFlag, 0, 1);
-            }
-        }
-
         /// <summary>
         /// Timeout della connessione.
         /// </summary>
@@ -104,6 +90,11 @@ namespace UNOCardGame
         public IProgress<List<Player>> UpdatePlayers { get; set; } = null;
 
         /// <summary>
+        /// Funzione che chiude la UI.
+        /// </summary>
+        public IProgress<string> CloseUI { get; set; } = null;
+
+        /// <summary>
         /// Logger del client
         /// </summary>
         private Logger Log = new("CLIENT");
@@ -112,6 +103,9 @@ namespace UNOCardGame
         /// Permette di mandare dati al Sender per mandare pacchetti
         /// </summary>
         private ChannelWriter<ChannelData> Writer;
+
+        private CancellationTokenSource ListenerCancellation;
+        private CancellationTokenSource SenderCancellation;
 
         /// <summary>
         /// Dati mandati tramite il Writer
@@ -156,12 +150,13 @@ namespace UNOCardGame
         /// </summary>
         public void Start()
         {
-            RunFlag = true;
+            // Connette il socket
             var connectTask = new Task(async () => await Connect());
             connectTask.Start();
             connectTask.Wait();
             if (connectTask.IsCompletedSuccessfully)
             {
+                // Manda richiesta di Join
                 var joinHandler = (AccessCode == null) ? new Task(async () => await Join()) : new Task(async () => await Rejoin());
                 joinHandler.Start();
                 joinHandler.Wait();
@@ -175,15 +170,24 @@ namespace UNOCardGame
         /// <summary>
         /// Termina il client.
         /// </summary>
-        public void Close()
+        public void Close(bool abandon)
         {
             if (ServerSocket != null)
             {
+                Send(new ConnectionEnd(abandon));
+
+                ListenerCancellation.Cancel();
+                Log.Info("Chiusura listener handler...");
+                if (!ListenerHandler.IsCompleted)
+                    ListenerHandler.Wait();
+
+                //SenderCancellation.Cancel();
+                Log.Info("Chiusura sender handler...");
+                if (!SenderHandler.IsCompleted)
+                    SenderHandler.Wait();
+
                 ServerSocket.Close();
-                RunFlag = false;
-                if (ListenerHandler != null)
-                    if (!ListenerHandler.IsCompleted)
-                        ListenerHandler.Wait(1000);
+                ServerSocket = null;
                 // TODO: Salvataggio partita nella lista delle partite fatte
             }
         }
@@ -193,16 +197,21 @@ namespace UNOCardGame
         /// </summary>
         /// <param name="read">Canale da cui riceve i pacchetti da mandare</param>
         /// <returns></returns>
-        private async Task Sender(ChannelReader<ChannelData> read)
+        private async Task Sender(ChannelReader<ChannelData> read, CancellationToken canc)
         {
-            while (RunFlag)
+            while (true)
             {
                 try
                 {
-                    var data = await read.ReadAsync();
-                    switch (data.PacketId)
+                    canc.ThrowIfCancellationRequested();
+                    var data = await read.ReadAsync(canc);
+                    switch ((PacketType)data.PacketId)
                     {
-                        case (short)PacketType.ChatMessage:
+                        case PacketType.ConnectionEnd:
+                            await Packet.Send(ServerSocket, (ConnectionEnd)data.Data);
+                            Log.Info("Mandato pacchetto per la disconnessione.");
+                            return;
+                        case PacketType.ChatMessage:
                             await Packet.Send(ServerSocket, (ChatMessage)data.Data);
                             Log.Info("Chat Message sent to Server");
                             break;
@@ -211,10 +220,19 @@ namespace UNOCardGame
                 catch (PacketException e)
                 {
                     Log.Error($"Packet exception occurred: {e}");
+                    CloseUI.Report($"Packet exception occurred: {e}");
+                    return;
+                }
+                catch (OperationCanceledException)
+                {
+                    Log.Info("Closing sender...");
+                    return;
                 }
                 catch (Exception e)
                 {
                     Log.Error($"Exception occurred: {e}");
+                    CloseUI.Report($"Exception occurred: {e}");
+                    return;
                 }
             }
         }
@@ -230,32 +248,25 @@ namespace UNOCardGame
         /// Ascolta i pacchetti che arrivano dal server e li gestisce.
         /// </summary>
         /// <returns></returns>
-        private async Task Listener()
+        private async Task Listener(CancellationToken canc)
         {
             // Lista dei player nel gioco
             Dictionary<uint, Player> players = new();
-            while (RunFlag)
+
+            string errMsg = "Errore durante la ricezione dei pacchetti dal server: ";
+            while (true)
             {
                 try
                 {
                     string packetString = "(None)";
-                    short packetType;
-                    try
+                    short packetType = await Packet.ReceiveType(ServerSocket, canc);
+                    switch ((PacketType)packetType)
                     {
-                        packetType = await Packet.ReceiveType(ServerSocket);
-                    }
-                    catch (ObjectDisposedException)
-                    {
-                        // Termina la funzione se il socket del server è stato chiuso
-                        return;
-                    }
-                    switch (packetType)
-                    {
-                        case Packet.ServerEnd:
-                            RunFlag = false;
-                            // TODO: Gestire la chiusura del server
-                            break;
-                        case (short)PacketType.ChatMessage:
+                        case PacketType.ConnectionEnd:
+                            await Packet.CancelReceive(ServerSocket);
+                            
+                            return;
+                        case PacketType.ChatMessage:
                             {
                                 var packet = await Packet.Receive<ChatMessage>(ServerSocket);
                                 if (packet.Message is var msg)
@@ -267,6 +278,7 @@ namespace UNOCardGame
                                             // Aggiunge il messaggio con il colore dell'username del player che l'ha mandato
                                             var msgDisplay = new MessageDisplay(player.Personalizations.UsernameColor.ToColor(), player.Name, msg);
                                             AddMsg.Report(msgDisplay);
+                                            Log.Info($"[CHAT] {player.Name}: {msg}");
                                         }
                                         else
                                         {
@@ -279,6 +291,7 @@ namespace UNOCardGame
                                     {
                                         // Un messaggio senza user è un messaggio di servizio del server
                                         var msgDisplay = new MessageDisplay(null, null, msg);
+                                        Log.Info($"[CHAT] Server: {msg}");
                                         AddMsg.Report(msgDisplay);
                                     }
                                 }
@@ -290,60 +303,23 @@ namespace UNOCardGame
                                 }
                             }
                             continue;
-                        case (short)PacketType.PlayerUpdate:
+                        case PacketType.PlayerUpdate:
                             {
-                                var packet = await Packet.Receive<PlayerUpdate>(ServerSocket);
-                                switch (packet.Type)
+                                var packet = await Packet.Receive<PlayersUpdate>(ServerSocket);
+
+                                if (packet.Players.Count == 0)
                                 {
-                                    case PlayerUpdateType.PlayersUpdate:
-                                        {
-                                            if (packet.Players is List<Player> _players)
-                                                foreach (var player in _players)
-                                                    if (player.Id is uint id)
-                                                    {
-                                                        players.Add(id, player);
-                                                        goto updatePlayersUI;
-                                                    }
-                                        }
-                                        goto default;
-                                    case PlayerUpdateType.NewPlayer:
-                                        {
-                                            if (packet.Player is Player newPlayer)
-                                                if (newPlayer.Id is uint id)
-                                                {
-                                                    players.Add(id, newPlayer);
-                                                    goto updatePlayersUI;
-                                                }
-                                        }
-                                        goto default;
-                                    case PlayerUpdateType.OnlineStatusUpdate:
-                                        {
-                                            if (packet.Id is uint id && packet.IsOnline is bool isOnline)
-                                                if (players.TryGetValue(id, out var player))
-                                                {
-                                                    player.IsOnline = isOnline;
-                                                    goto updatePlayersUI;
-                                                }
-                                        }
-                                        goto default;
-                                    case PlayerUpdateType.CardsNumUpdate:
-                                        {
-                                            if (packet.Id is uint id && packet.CardsNum is int cardsNum)
-                                                if (players.TryGetValue(id, out var player))
-                                                {
-                                                    player.CardsNum = cardsNum;
-                                                    goto updatePlayersUI;
-                                                }
-                                        }
-                                        goto default;
-                                    default:
-                                        Log.Warn($"Server sent an invalid PlayerUpdate packet type: {packet.Type}");
-                                        packetString = packet.Serialize();
-                                        goto invalid;
+                                    Log.Warn("Server sent an invalid PlayersUpdate packet");
+                                    packetString = packet.Serialize();
+                                    goto invalid;
                                 }
-                            updatePlayersUI:
-                                List<Player> playerSorted = players.Values.OrderBy(player => player.Id).ToList();
-                                UpdatePlayers.Report(playerSorted);
+
+                                players.Clear();
+                                foreach (var player in packet.Players)
+                                    if (player.Id is uint id)
+                                        players[id] = player;
+
+                                UpdatePlayers.Report(players.Values.ToList());
                             }
                             continue;
                         default:
@@ -356,11 +332,20 @@ namespace UNOCardGame
                 }
                 catch (PacketException e)
                 {
-                    Log.Error($"Packet exception occurred: {e}");
+                    errMsg += $"Errore durante la ricezione di un pacchetto: {e}";
+                    Log.Error(errMsg);
+                    CloseUI.Report(errMsg);
+                }
+                catch (OperationCanceledException)
+                {
+                    Log.Info("Closing listener...");
+                    return;
                 }
                 catch (Exception e)
                 {
-                    Log.Error($"Exception occurred: {e}");
+                    errMsg += $"Errore: {e}";
+                    Log.Error(errMsg);
+                    CloseUI.Report(errMsg);
                 }
             }
         }
@@ -378,19 +363,54 @@ namespace UNOCardGame
 
             // Ricava l'IP del server
             IPAddress ip;
-            if (ServerIP != null)
-                ip = IPAddress.Parse(ServerIP);
-            else if (ServerDNS != null)
-                ip = (await Dns.GetHostEntryAsync(ServerDNS)).AddressList[0];
-            else throw new ArgumentNullException(nameof(ip), "Il DNS o l'IP devono essere specificati.");
+            try
+            {
+                if (ServerIP != null)
+                    ip = IPAddress.Parse(ServerIP);
+                else if (ServerDNS != null)
+                    ip = (await Dns.GetHostEntryAsync(ServerDNS)).AddressList[0];
+                else throw new ArgumentNullException(nameof(ip), "Il DNS o l'IP devono essere specificati.");
+            }
+            catch (Exception e)
+            {
+                string errMsg = $"IP o DNS non valido: {e}";
+                CloseUI.Report(errMsg);
+                return;
+            }
 
             // Crea il nuovo socket e si connette al server
-            var endPoint = new IPEndPoint(ip, ServerPort);
-            ServerSocket = new Socket(endPoint.AddressFamily, SocketType.Stream, ProtocolType.Tcp);
-            ServerSocket.ReceiveTimeout = -1;
-            ServerSocket.SendTimeout = TimeOutMillis;
-            await ServerSocket.ConnectAsync(endPoint);
+            IPEndPoint endPoint;
+            try
+            {
+                endPoint = new(ip, ServerPort);
+                ServerSocket = new(endPoint.AddressFamily, SocketType.Stream, ProtocolType.Tcp);
+                ServerSocket.ReceiveTimeout = -1;
+                ServerSocket.SendTimeout = TimeOutMillis;
+                await ServerSocket.ConnectAsync(endPoint);
+            }
+            catch (Exception e)
+            {
+                string errMsg = $"Impossibile connettersi al server: {e}";
+                CloseUI.Report(errMsg);
+                return;
+            }
             Log.Info($"Connected to server: {endPoint}");
+        }
+
+        /// <summary>
+        /// Avvia gli handler della connessione
+        /// </summary>
+        private void StartHandlers()
+        {
+            // Crea il canale di comunicazione con il Sender
+            Channel<ChannelData> channel = Channel.CreateUnbounded<ChannelData>();
+            Writer = channel.Writer;
+            ListenerCancellation = new();
+            ListenerHandler = new Task(async () => await Listener(ListenerCancellation.Token));
+            ListenerHandler.Start();
+            SenderCancellation = new();
+            SenderHandler = new Task(async () => await Sender(channel.Reader, SenderCancellation.Token));
+            SenderHandler.Start();
         }
 
         /// <summary>
@@ -399,14 +419,15 @@ namespace UNOCardGame
         /// <returns></returns>
         private async Task Join()
         {
-            // Manda la richiesta per unirsi al gioco
-            var joinRequest = new Join(Player);
-            await Packet.Send(ServerSocket, joinRequest);
-
-            // Riceve lo status della richiesta
+            string msg = null;
             try
             {
-                var responseType = await Packet.ReceiveType(ServerSocket);
+                // Manda la richiesta per unirsi al gioco
+                var joinRequest = new Join(Player);
+                await Packet.Send(ServerSocket, joinRequest);
+
+                // Riceve lo status della richiesta
+                var responseType = await Packet.ReceiveType(ServerSocket, null);
                 if (responseType == (short)PacketType.JoinStatus)
                 {
                     var status = await Packet.Receive<JoinStatus>(ServerSocket);
@@ -416,38 +437,31 @@ namespace UNOCardGame
                         Player = playerData;
                         AccessCode = accessCode;
 
-                        // Crea il canale di comunicazione con il Sender
-                        Channel<ChannelData> channel = Channel.CreateUnbounded<ChannelData>();
-                        Writer = channel.Writer;
-
-                        // Avvia i task della connessione
-                        ListenerHandler = new Task(async () => await Listener());
-                        ListenerHandler.Start();
-                        SenderHandler = new Task(async () => await Sender(channel.Reader));
-                        SenderHandler.Start();
+                        // Avvia gli handler della connessione
+                        StartHandlers();
+                        return;
                     }
                     else if (status.Err is var error)
-                    {
-                        ServerSocket.Close();
-                        ServerSocket = null;
-                        Log.Error($"Failed to connect to server: {error}");
-                        // TODO: Gestire l'errore
-                    }
+                        msg = $"Richiesta per unirsi al server non riuscita: {error}";
+                    else
+                        msg = $"Status della connessione mandato dal server non valido: {status.Serialize()}";
                 }
             }
             catch (PacketException e)
             {
                 if (e.ExceptionType == PacketExceptions.ConnectionClosed)
-                {
-                    Log.Info("Closing client...");
-                    return;
-                }
-                Log.Error($"A packet exception occurred: {e}");
+                    msg = "Il server ha chiuso la connessione";
+                else
+                    msg = $"Errore di comunicazione dei pacchetti durante la connessione al server: {e}";
             }
             catch (Exception e)
             {
-                Log.Error($"An exception occurred: {e}");
+                msg = $"Errore durante la connessione al server: {e}";
+
             }
+            if (msg != null)
+                Log.Error(msg);
+            CloseUI.Report(msg);
         }
 
         /// <summary>
@@ -456,6 +470,7 @@ namespace UNOCardGame
         /// <returns></returns>
         private async Task Rejoin()
         {
+            string msg = "Riconnessione al server fallita: ";
             uint id;
             long accessCode;
             if (Player != null)
@@ -464,33 +479,58 @@ namespace UNOCardGame
                     id = _id;
                     if (AccessCode is long _accessCode)
                         accessCode = _accessCode;
-                    else throw new ArgumentNullException(nameof(AccessCode), "L'access code deve essere impostato per riunirsi.");
+                    else
+                    {
+                        msg += "L'access code deve essere impostato per riunirsi.";
+                        goto close;
+                    }
                 }
-                else throw new ArgumentNullException(nameof(Player.Id), "L'ID del player deve essere impostato per riunirsi.");
-            else throw new ArgumentNullException(nameof(Player), "Le informazioni del player devono essere impostate per riunirsi.");
-
-            // Manda la richiesta per riunirsi
-            var rejoinRequest = new Join(id, accessCode);
-            await Packet.Send(ServerSocket, rejoinRequest);
-
-            // Riceve lo status della richiesta
-            var responseType = await Packet.ReceiveType(ServerSocket);
-            if (responseType == (short)PacketType.JoinStatus)
+                else
+                {
+                    msg += "L'ID del player deve essere impostato per riunirsi.";
+                    goto close;
+                }
+            else
             {
-                var status = await Packet.Receive<JoinStatus>(ServerSocket);
-                if (status.AccessCode is long newAccessCode)
+                msg += "Le informazioni del player devono essere impostate per riunirsi.";
+                goto close;
+            }
+
+            try
+            {
+                // Manda la richiesta per riunirsi
+                var rejoinRequest = new Join(id, accessCode);
+                await Packet.Send(ServerSocket, rejoinRequest);
+
+                // Riceve lo status della richiesta
+                var responseType = await Packet.ReceiveType(ServerSocket, null);
+                if (responseType == (short)PacketType.JoinStatus)
                 {
-                    AccessCode = newAccessCode;
-                    ListenerHandler = new Task(async () => await Listener());
-                    ListenerHandler.Start();
-                }
-                else if (status.Err is var error)
-                {
-                    ServerSocket.Close();
-                    ServerSocket = null;
-                    // TODO: Gestire l'errore
+                    var status = await Packet.Receive<JoinStatus>(ServerSocket);
+                    if (status.AccessCode is long newAccessCode)
+                    {
+                        // Salva il nuovo access code
+                        AccessCode = newAccessCode;
+                        StartHandlers();
+                        return;
+                    }
+                    else if (status.Err is string error)
+                        msg += $"La richiesta di riconnessione non è stata accettata: {error}";
+                    else
+                        msg += $"Status della connessione mandato dal server non valido: {status.Serialize()}";
                 }
             }
+            catch (PacketException e)
+            {
+                if (e.ExceptionType == PacketExceptions.ConnectionClosed)
+                    msg = "Il server ha chiuso la connessione";
+                else
+                    msg = $"Errore di comunicazione dei pacchetti durante la connessione al server: {e}";
+            }
+
+        close:
+            Log.Error(msg);
+            CloseUI.Report(msg);
         }
     }
 }

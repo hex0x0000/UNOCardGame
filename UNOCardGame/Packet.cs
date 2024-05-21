@@ -7,6 +7,7 @@ using System.Net.Http.Headers;
 using System.Net.Sockets;
 using System.Text;
 using System.Text.Json;
+using System.Threading;
 using System.Threading.Tasks;
 
 namespace UNOCardGame
@@ -23,8 +24,7 @@ namespace UNOCardGame
         DecodingFailed,
         SocketFailed,
         PacketTooBig,
-        InvalidArgument,
-        Unknown
+        InvalidArgument
     }
 
     /// <summary>
@@ -39,7 +39,7 @@ namespace UNOCardGame
             ExceptionType = exception;
         }
 
-        public override string ToString() => $"{ExceptionType}: {Message}.{Environment.NewLine}Inner exception was {InnerException.GetType()}: {InnerException.Message}{Environment.NewLine}Stacktrace: {StackTrace}";
+        public override string ToString() => $"{ExceptionType}: {Message}.{Environment.NewLine}Inner exception was {InnerException.GetType()}: {InnerException.Message}{Environment.NewLine}{InnerException}{Environment.NewLine}Stacktrace: {StackTrace}";
     }
 
     enum PacketType : short
@@ -47,7 +47,8 @@ namespace UNOCardGame
         Join,
         JoinStatus,
         PlayerUpdate,
-        ChatMessage
+        ChatMessage,
+        ConnectionEnd
     }
 
     /// <summary>
@@ -56,21 +57,6 @@ namespace UNOCardGame
     /// </summary>
     public static class Packet
     {
-        /// <summary>
-        /// Disconnessione, possibilmente temporanea, dal server.
-        /// </summary>
-        public const short ConnectionEnd = -1;
-
-        /// <summary>
-        /// Disconnessione permanente dal server.
-        /// </summary>
-        public const short ClientEnd = -2;
-
-        /// <summary>
-        /// Messaggio mandato ai client quando viene chiuso il server.
-        /// </summary>
-        public const short ServerEnd = -3;
-
         /// <summary>
         /// Manda il numero di byte del contenuto da mandare.
         /// </summary>
@@ -118,11 +104,9 @@ namespace UNOCardGame
             }
             catch (SocketException e)
             {
+                if (e.SocketErrorCode == SocketError.ConnectionReset || e.SocketErrorCode == SocketError.ConnectionAborted || e.SocketErrorCode == SocketError.ConnectionRefused)
+                    throw new PacketException(PacketExceptions.ConnectionClosed, "ConnectionEnd was closed.", e);
                 throw new PacketException(PacketExceptions.SocketFailed, "Failed to receive name due to connection error", e);
-            }
-            catch (Exception e)
-            {
-                throw new PacketException(PacketExceptions.Unknown, "Unknown exception happened while receiving packet", e);
             }
         }
 
@@ -131,12 +115,15 @@ namespace UNOCardGame
         /// </summary>
         /// <param name="socket">Socket della connessione da cui ricevere il tipo di pacchetto</param>
         /// <returns>L'ID del tipo del pacchetto</returns>
-        public async static Task<short> ReceiveType(Socket socket)
+        public async static Task<short> ReceiveType(Socket socket, CancellationToken? canc)
         {
             try
             {
                 byte[] type = new byte[sizeof(short)];
-                await socket.ReceiveAsync(type);
+                if (canc is CancellationToken _canc)
+                    await socket.ReceiveAsync(type, _canc);
+                else
+                    await socket.ReceiveAsync(type);
                 if (BitConverter.IsLittleEndian)
                     Array.Reverse(type);
                 return BitConverter.ToInt16(type, 0);
@@ -147,17 +134,13 @@ namespace UNOCardGame
             }
             catch (SocketException e)
             {
-                if (e.SocketErrorCode == SocketError.ConnectionReset)
-                    throw new PacketException(PacketExceptions.ConnectionClosed, "Connection was closed.", e);
+                if (e.SocketErrorCode == SocketError.ConnectionReset || e.SocketErrorCode == SocketError.ConnectionAborted || e.SocketErrorCode == SocketError.ConnectionRefused)
+                    throw new PacketException(PacketExceptions.ConnectionClosed, "ConnectionEnd was closed.", e);
                 throw new PacketException(PacketExceptions.SocketFailed, "Failed to receive name due to connection error", e);
             }
             catch (DecoderFallbackException e)
             {
                 throw new PacketException(PacketExceptions.DecodingFailed, "Failed to decode packet name", e);
-            }
-            catch (Exception e)
-            {
-                throw new PacketException(PacketExceptions.Unknown, "Unknown exception happened while receiving name", e);
             }
         }
 
@@ -204,6 +187,8 @@ namespace UNOCardGame
             }
             catch (SocketException e)
             {
+                if (e.SocketErrorCode == SocketError.ConnectionReset || e.SocketErrorCode == SocketError.ConnectionAborted || e.SocketErrorCode == SocketError.ConnectionRefused)
+                    throw new PacketException(PacketExceptions.ConnectionClosed, "ConnectionEnd was closed.", e);
                 throw new PacketException(PacketExceptions.SocketFailed, "Failed to send packet due to connection error", e);
             }
             catch (NotSupportedException e)
@@ -213,10 +198,6 @@ namespace UNOCardGame
             catch (EncoderFallbackException e)
             {
                 throw new PacketException(PacketExceptions.EncodingFailed, "Failed to encode packet while sending it", e);
-            }
-            catch (Exception e)
-            {
-                throw new PacketException(PacketExceptions.Unknown, "Unknown exception happened while sending packet", e);
             }
         }
 
@@ -240,6 +221,8 @@ namespace UNOCardGame
             }
             catch (SocketException e)
             {
+                if (e.SocketErrorCode == SocketError.ConnectionReset || e.SocketErrorCode == SocketError.ConnectionAborted || e.SocketErrorCode == SocketError.ConnectionRefused)
+                    throw new PacketException(PacketExceptions.ConnectionClosed, "ConnectionEnd was closed.", e);
                 throw new PacketException(PacketExceptions.SocketFailed, "Failed to receive packet due to connection error", e);
             }
             catch (DecoderFallbackException e)
@@ -253,10 +236,6 @@ namespace UNOCardGame
             catch (NotSupportedException e)
             {
                 throw new PacketException(PacketExceptions.DeserializationFailed, "Failed to deserialize packet while receiving it, not supported", e);
-            }
-            catch (Exception e)
-            {
-                throw new PacketException(PacketExceptions.Unknown, "Unknown exception happened while receiving packet", e);
             }
         }
     }
