@@ -16,11 +16,11 @@ namespace UNOCardGame.Packets
         public override short PacketId => (short)PacketType.ConnectionEnd;
 
         /// <summary>
-        /// Rimuove il giocatore dal server
+        /// Disconnessione definitiva, se impostato a vero riconnettersi non è possibile
         /// </summary>
-        public bool Abandon { get; } = false;
+        public bool Final { get; } = false;
 
         [JsonConstructor]
-        public ConnectionEnd(bool abandon) => Abandon = abandon;
+        public ConnectionEnd(bool final) => Final = final;
     }
 }

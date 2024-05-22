@@ -70,7 +70,7 @@ namespace UNOCardGame
         /// Colori possibili per l'username dei giocatori.
         /// </summary>
         [JsonIgnore]
-        public static readonly List<PlayerColor> USERNAME_COLORS = new() { new(Color.Black), new(Color.DeepSkyBlue), new(Color.DarkRed) };
+        public static readonly List<PlayerColor> USERNAME_COLORS = new() { new(Color.Black), new(Color.Chocolate), new(Color.DarkRed) };
 
         private PlayerColor _UsernameColor;
 
@@ -145,8 +145,7 @@ namespace UNOCardGame
         /// <summary>
         /// Specifica se il player è online o no.
         /// </summary>
-        [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
-        public bool? IsOnline { get; set; }
+        public bool IsOnline { get; set; }
 
         /// <summary>
         /// Numero di carte del giocatore.
@@ -178,7 +177,7 @@ namespace UNOCardGame
         /// <param name="name">Username del giocatore</param>
         /// <param name="personalizations">Personalizzazioni</param>
         [JsonConstructor]
-        public Player(uint? id, int? cardsNum, bool? isOnline, string name, Personalization personalizations)
+        public Player(uint? id, int? cardsNum, bool isOnline, string name, Personalization personalizations)
         {
             Id = id;
             Name = name;
@@ -206,7 +205,7 @@ namespace UNOCardGame
             Label label = new()
             {
                 AutoSize = true,
-                Text = Name,
+                Text = ToString(),
                 Font = (isFocused) ? new Font("Microsoft Sans Serif Bold", 20F) : new Font("Microsoft Sans Serif", 15F),
                 ForeColor = Personalizations.UsernameColor.ToColor(),
                 BackColor = Personalizations.BackgroundColor.ToColor(),
@@ -218,12 +217,6 @@ namespace UNOCardGame
 
         public object Clone() => new Player(Id, CardsNum, IsOnline, (string)Name.Clone(), (Personalization)Personalizations.Clone());
 
-        public override string ToString()
-        {
-            if (IsOnline is bool isOnline)
-                if (!isOnline)
-                    return $"{Name} (Offline)";
-            return Name;
-        }
+        public override string ToString() => (IsOnline) ? Name : $"{Name} (Offline)";
     }
 }

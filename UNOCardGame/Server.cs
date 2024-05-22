@@ -106,6 +106,20 @@ namespace UNOCardGame
 
         private CancellationTokenSource BroadcasterCancellation;
 
+        private volatile int _IsBroadcasterRunning = 0;
+
+        /// <summary>
+        /// Questa proprietà può essere modificata in modo thread-safe.
+        /// </summary>
+        private bool IsBroadcasterRunning
+        {
+            get => (Interlocked.CompareExchange(ref _IsBroadcasterRunning, 1, 1) == 1); set
+            {
+                if (value) Interlocked.CompareExchange(ref _IsBroadcasterRunning, 1, 0);
+                else Interlocked.CompareExchange(ref _IsBroadcasterRunning, 0, 1);
+            }
+        }
+
         /// <summary>
         /// I dati di ogni player.
         /// Contiene il codice di accesso, il server per comunicare con il client
@@ -126,8 +140,7 @@ namespace UNOCardGame
                 Deck = Card.GenerateDeck(7);
                 Client = client;
                 ClientHandler = clientHandler;
-                IsOnline = true;
-                Player = new Player(id, Deck.Count, IsOnline, player.Name, player.Personalizations);
+                Player = new Player(id, Deck.Count, true, player.Name, player.Personalizations);
                 Cancellation = canc;
             }
 
@@ -163,11 +176,6 @@ namespace UNOCardGame
             /// Il deck del giocatore.
             /// </summary>
             public List<Card> Deck { get; set; }
-
-            /// <summary>
-            /// Segna se il giocatore è online o meno.
-            /// </summary>
-            public bool IsOnline { get; set; }
 
             public CancellationTokenSource Cancellation;
         }
@@ -255,6 +263,9 @@ namespace UNOCardGame
                 endTask.Start();
                 endTask.Wait();
 
+                // Aspetta che il broadcaster finisca di mandare tutti i messaggi
+                while (IsBroadcasterRunning) ;
+
                 ListenerCancellation.Cancel();
                 Log.Info("Waiting listener...");
                 if (!ListenerHandler.IsCompleted)
@@ -276,7 +287,7 @@ namespace UNOCardGame
                         player.Value.ClientHandler.Wait(timeOut);
                     try
                     {
-                        if (player.Value.IsOnline)
+                        if (player.Value.Player.IsOnline)
                             player.Value.Client.Close();
                     }
                     catch (Exception e)
@@ -302,13 +313,24 @@ namespace UNOCardGame
             // Copia i socket dei client per evitare di passare troppo tempo con il mutex bloccato
             PlayersMutex.WaitOne();
             foreach (var player in Players)
-                if (player.Value.IsOnline)
+                if (player.Value.Player.IsOnline)
                     clients.Add(player.Value.Client);
             PlayersMutex.ReleaseMutex();
 
             // Manda il messaggio a tutti i socket
             foreach (var client in clients)
-                await Packet.Send(client, packet);
+            {
+                try
+                {
+                    await Packet.Send(client, packet);
+                }
+                catch (PacketException e)
+                {
+                    if (e.ExceptionType == PacketExceptions.ConnectionClosed)
+                        return;
+                    Log.Error($"Errore durante la spedizione del pacchetto a un utente: {e}");
+                }
+            }
         }
 
         /// <summary>
@@ -331,7 +353,18 @@ namespace UNOCardGame
 
             // Manda il messaggio a tutti al socket se esiste, altrimenti viene ignorato
             if (client != null)
-                await Packet.Send(client, packet);
+            {
+                try
+                {
+                    await Packet.Send(client, packet);
+                }
+                catch (PacketException e)
+                {
+                    if (e.ExceptionType == PacketExceptions.ConnectionClosed)
+                        return;
+                    Log.Error($"Errore durante la spedizione del pacchetto all'utente con {id}: {e}");
+                }
+            }
         }
 
         /// <summary>
@@ -366,9 +399,10 @@ namespace UNOCardGame
         private async Task Broadcaster(CancellationToken canc)
         {
             Log.Info("Broadcaster started.");
-            while (true)
+            IsBroadcasterRunning = true;
+            try
             {
-                try
+                while (true)
                 {
                     canc.ThrowIfCancellationRequested();
                     // Aspetta che gli vengano mandati nuovi pacchetti da mandare
@@ -377,6 +411,7 @@ namespace UNOCardGame
                     {
                         case PacketType.ConnectionEnd:
                             await BroadcastAll((ConnectionEnd)packet.Data);
+                            IsBroadcasterRunning = false;
                             return;
                         case PacketType.ChatMessage:
                             {
@@ -398,19 +433,22 @@ namespace UNOCardGame
                             break;
                     }
                 }
-                catch (PacketException e)
-                {
-                    Log.Error($"Packet exception occurred while broadcasting packet: {e}");
-                }
-                catch (ObjectDisposedException)
-                {
-                    Log.Info("Closing broadcaster...");
-                    return;
-                }
-                catch (Exception e)
-                {
-                    Log.Error($"Exception occurred while broadcasting packet: {e}");
-                }
+            }
+            catch (ObjectDisposedException)
+            {
+                Log.Info("Chiusura broadcaster...");
+            }
+            catch (OperationCanceledException)
+            {
+                Log.Info("Chiusura broadcaster...");
+            }
+            catch (Exception e)
+            {
+                Log.Error($"Errore durante il broadcasting di un pacchetto: {e}");
+            }
+            finally
+            {
+                IsBroadcasterRunning = false;
             }
         }
 
@@ -423,7 +461,7 @@ namespace UNOCardGame
         /// <returns></returns>
         private async Task ClientHandler(Socket client, uint userId, string name, CancellationToken canc)
         {
-            Log.Info(client, "Started new client handler.");
+            Log.Info(client, "Avviato l'handler per il nuovo client.");
 
             // Salva l'ip in caso di disconnessione improvvisa
             string addr = Logger.ToAddress(client);
@@ -441,7 +479,7 @@ namespace UNOCardGame
                             {
                                 Log.Info(client, "Il client si vuole disconnettere");
                                 var packet = await Packet.Receive<ConnectionEnd>(client);
-                                if (packet.Abandon)
+                                if (packet.Final)
                                     goto abandon;
                                 else
                                     goto close;
@@ -462,66 +500,69 @@ namespace UNOCardGame
                 catch (PacketException e)
                 {
                     Log.Error(addr, $"Packet exception happened while handling client: {e}");
+                    break;
                 }
                 catch (OperationCanceledException)
                 {
                     Log.Info(addr, "Cancelling this listener...");
+                    break;
                 }
                 catch (Exception e)
                 {
                     Log.Error(addr, $"Exception happened while handling client: {e}");
+                    break;
                 }
-
-            // Disconnessione possibilmente temporanea del client
-            // I dati del giocatore vengono mantenuti in memoria.
-            close:
-                Log.Info(addr, "Disconnecting client...");
-
-                // Chiude la connessione
-                client.Close();
-
-                // Imposta il client offline
-                PlayersMutex.WaitOne();
-                if (Players.TryGetValue(userId, out var player))
-                {
-                    player.IsOnline = false;
-                    player.Client = null;
-                }
-                PlayersMutex.ReleaseMutex();
-
-                // Manda l'update della disconnessione
-                {
-                    var playersUpdate = new PlayersUpdate(GetPlayersList());
-                    await SendToClients(playersUpdate);
-
-                    var msg = new ChatMessage($"{name} si è disconnesso");
-                    await SendToClients(msg);
-                }
-                return;
-
-            // Disconnessione permanente del client.
-            // I dati del giocatore vengono rimossi dalla memoria.
-            abandon:
-                Log.Info(addr, "Removing client...");
-
-                // Chiude la connessione
-                client.Close();
-
-                // Rimuove il client
-                PlayersMutex.WaitOne();
-                Players.Remove(userId);
-                PlayersMutex.ReleaseMutex();
-
-                // Manda l'update della rimozione del player
-                {
-                    var playersUpdate = new PlayersUpdate(GetPlayersList());
-                    await SendToClients(playersUpdate);
-
-                    var msg = new ChatMessage($"{name} ha abbandonato");
-                    await SendToClients(msg);
-                }
-                return;
             }
+
+        // Disconnessione possibilmente temporanea del client
+        // I dati del giocatore vengono mantenuti in memoria.
+        close:
+            Log.Info(addr, "Disconnecting client...");
+
+            // Chiude la connessione
+            client.Close();
+
+            // Imposta il client offline
+            PlayersMutex.WaitOne();
+            if (Players.TryGetValue(userId, out var player))
+            {
+                player.Player.IsOnline = false;
+                player.Client = null;
+            }
+            PlayersMutex.ReleaseMutex();
+
+            // Manda l'update della disconnessione
+            {
+                var playersUpdate = new PlayersUpdate(GetPlayersList());
+                await SendToClients(playersUpdate);
+
+                var msg = new ChatMessage($"{name} si è disconnesso");
+                await SendToClients(msg);
+            }
+            return;
+
+        // Disconnessione permanente del client.
+        // I dati del giocatore vengono rimossi dalla memoria.
+        abandon:
+            Log.Info(addr, "Removing client...");
+
+            // Chiude la connessione
+            client.Close();
+
+            // Rimuove il client
+            PlayersMutex.WaitOne();
+            Players.Remove(userId);
+            PlayersMutex.ReleaseMutex();
+
+            // Manda l'update della rimozione del player
+            {
+                var playersUpdate = new PlayersUpdate(GetPlayersList());
+                await SendToClients(playersUpdate);
+
+                var msg = new ChatMessage($"{name} ha abbandonato");
+                await SendToClients(msg);
+            }
+            return;
         }
 
         /// <summary>
@@ -616,16 +657,17 @@ namespace UNOCardGame
                         if (joinRequest.Id is uint userId && joinRequest.AccessCode is long accessCode)
                         {
                             var cancSource = new CancellationTokenSource();
-                            var clientHandler = new Task(async () => await ClientHandler(client, userId, joinRequest.NewPlayer.Name, cancSource.Token));
+                            Task clientHandler;
                             long newAccessCode;
                             string name = "";
                             PlayersMutex.WaitOne();
                             if (Players.TryGetValue(userId, out var player))
                             {
                                 // Aggiunge il socket nuovo del player e lo segna come online
-                                if (player.AccessCode == accessCode && !player.IsOnline)
+                                if (player.AccessCode == accessCode && !player.Player.IsOnline)
                                 {
                                     name = player.Player.Name;
+                                    clientHandler = new Task(async () => await ClientHandler(client, userId, name, cancSource.Token));
                                     player.GenAccessCode();
                                     newAccessCode = player.AccessCode;
                                     player.Cancellation.Cancel();
@@ -635,7 +677,7 @@ namespace UNOCardGame
                                     player.Cancellation = cancSource;
                                     player.ClientHandler = clientHandler;
                                     player.Client = client;
-                                    player.IsOnline = true;
+                                    player.Player.IsOnline = true;
                                 }
                                 // Se l'access code non è valido o il player è ancora online la richiesta non è valida
                                 else

@@ -18,6 +18,8 @@ namespace UNOCardGame
     {
         private bool Started = false;
         private MainGame Game;
+        private long? PrevAccessCode = null;
+        private Player PrevUser = null;
 
         public ConnectForm()
         {
@@ -29,7 +31,7 @@ namespace UNOCardGame
         /// </summary>
         private void connect_Click(object sender, EventArgs e)
         {
-            StartGame(isDNS.Checked);
+            StartGame(isDNS.Checked, null, null);
         }
 
         /// <summary>
@@ -37,37 +39,53 @@ namespace UNOCardGame
         /// </summary>
         private void host_Click(object sender, EventArgs e)
         {
-            StartGame(null);
+            StartGame(null, null, null);
+        }
+
+        private void reconnect_Click(object sender, EventArgs e)
+        {
+            if (PrevUser is Player prevUser && PrevAccessCode is long prevAccessCode)
+            {
+                reconnect.Enabled = false;
+                StartGame(isDNS.Checked, prevUser, prevAccessCode);
+            }
         }
 
         /// <summary>
         /// Inizia il gioco.
         /// Il motivo per cui il server non può avere "isDNS" è perché esso può ascoltare solo da IP locali.
         /// </summary>
-        /// <param name="_isDNS"></param>
-        private void StartGame(bool? _isDNS)
+        /// <param name="isDNS"></param>
+        private void StartGame(bool? isDNS, Player player, long? accessCode)
         {
             if (!Started)
             {
                 Started = true;
                 try
                 {
-                    if (_isDNS is bool isDNS)
+                    if (isDNS is bool __isDNS && player is Player _player && accessCode is long _accessCode)
+                        // Si riconnette a una partita precedente
+                        Game = new MainGame(_player, address.Text, ushort.Parse(port.Text), __isDNS, _accessCode);
+                    else if (isDNS is bool _isDNS)
                         // Inizia il gioco come client
-                        Game = new MainGame(new Player(nickname.Text), address.Text, ushort.Parse(port.Text), isDNS);
+                        Game = new MainGame(new Player(nickname.Text), address.Text, ushort.Parse(port.Text), _isDNS);
                     else
                         // Inizia il gioco come server (host)
                         Game = new MainGame(new Player(nickname.Text), address.Text, ushort.Parse(port.Text));
                     Game.FormClosed += (sender, e) =>
                     {
+                        PrevUser = Game.Client.Player;
+                        PrevAccessCode = Game.Client.AccessCode;
+                        if (PrevUser != null && PrevAccessCode != null)
+                            reconnect.Enabled = true;
                         Started = false;
                         Show();
                     };
                     Game.Show();
                 }
-                catch (OverflowException)
+                catch (Exception ex) when (ex is FormatException || ex is OverflowException)
                 {
-                    MessageBox.Show("La porta deve essere valida");
+                    MessageBox.Show("La porta deve essere valida (numero compreso tra 1 e 65535)");
                     Started = false;
                 }
                 catch (Exception ex)

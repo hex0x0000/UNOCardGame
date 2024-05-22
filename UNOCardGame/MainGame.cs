@@ -21,12 +21,17 @@ namespace UNOCardGame
         /// <summary>
         /// Il client di questo gioco.
         /// </summary>
-        private Client Client = null;
+        public Client Client = null;
 
         /// <summary>
         /// Il server di questo gioco (solo se si sta hostando la partita)
         /// </summary>
         private Server Server = null;
+
+        /// <summary>
+        /// Se la chiusura è stata forzata, specifica se successivamente è possibile riunirsi o no
+        /// </summary>
+        private bool? Abandon = null;
 
         /// <summary>
         /// Font normale della chat
@@ -53,10 +58,13 @@ namespace UNOCardGame
             _ChatBold = new Font(chat.Font, FontStyle.Bold);
         }
 
-        private void InitClient(Player player, string address, ushort port, bool isDNS)
+        private void InitClient(Player player, string address, ushort port, bool isDNS, long? prevAccessCode)
         {
-            Client = new Client(player, address, port, isDNS);
-            
+            if (prevAccessCode is long _prevAccessCode)
+                Client = new Client(player, address, port, isDNS, _prevAccessCode);
+            else
+                Client = new Client(player, address, port, isDNS);
+
             // Progress che fa visualizzare i nuovi messaggi
             var appendMsg = new Progress<MessageDisplay>();
             appendMsg.ProgressChanged += (s, message) => AppendMessage(message);
@@ -68,23 +76,51 @@ namespace UNOCardGame
             Client.UpdatePlayers = playerUpdate;
 
             // Progress che chiude il gioco
-            var close = new Progress<string>();
-            close.ProgressChanged += (s, message) => CloseGame(message);
-            Client.CloseUI = close;
+            var close = new Progress<(string, bool)>();
+            close.ProgressChanged += (s, message) => ForceCloseGame(message.Item1, message.Item2);
+            Client.ForceClose = close;
         }
 
+        /// <summary>
+        /// Si riconnette a un server
+        /// </summary>
+        /// <param name="player"></param>
+        /// <param name="address"></param>
+        /// <param name="port"></param>
+        /// <param name="isDNS"></param>
+        /// <param name="prevAccessCode"></param>
+        public MainGame(Player player, string address, ushort port, bool isDNS, long prevAccessCode)
+        {
+            InitializeComponent();
+            InitStyleComponents();
+            InitClient(player, address, port, isDNS, prevAccessCode);
+        }
+
+        /// <summary>
+        /// Si connette a un server
+        /// </summary>
+        /// <param name="player"></param>
+        /// <param name="address"></param>
+        /// <param name="port"></param>
+        /// <param name="isDNS"></param>
         public MainGame(Player player, string address, ushort port, bool isDNS)
         {
             InitializeComponent();
             InitStyleComponents();
-            InitClient(player, address, port, isDNS);
+            InitClient(player, address, port, isDNS, null);
         }
 
+        /// <summary>
+        /// Hosta il server
+        /// </summary>
+        /// <param name="player"></param>
+        /// <param name="address"></param>
+        /// <param name="port"></param>
         public MainGame(Player player, string address, ushort port)
         {
             InitializeComponent();
             InitStyleComponents();
-            InitClient(player, address, port, false);
+            InitClient(player, address, port, false, null);
             Server = new Server(address, port);
         }
 
@@ -179,9 +215,11 @@ namespace UNOCardGame
         }
 
         /// <summary>
-        /// Chiude il gioco, riportando errori in caso ci siano stati
+        /// Chiude il gioco in maniera forzata, riportando errori in caso ci siano stati
         /// </summary>
-        void CloseGame(string errMsg) {
+        void ForceCloseGame(string errMsg, bool abandon)
+        {
+            Abandon = abandon;
             if (errMsg != null)
                 MessageBox.Show(errMsg);
             Close();
@@ -193,8 +231,15 @@ namespace UNOCardGame
         /// <param name="e"></param>
         protected override void OnFormClosing(FormClosingEventArgs e)
         {
-            Client.Close(true);
-            Thread.Sleep(1000);
+            if (Server == null)
+            {
+                if (Abandon is bool abandon)
+                    Client.Close(abandon);
+                else if (MessageBox.Show("Se clicchi 'No' potrai riunirti successivamente", "Vuoi chiudere definitivamente la connessione?", MessageBoxButtons.YesNo, MessageBoxIcon.Question) == DialogResult.Yes)
+                    Client.Close(true);
+                else Client.Close(false);
+            }
+            else Client.Close(true);
             if (Server is Server server)
                 server.StopServer();
             base.OnFormClosing(e);

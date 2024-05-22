@@ -160,7 +160,7 @@ namespace UNOCardGame
         {
             string log = $"[{logType}] [{Type}] {DateTime.Now} - {CallLocation()}";
             if (socket != null)
-                log += $" - ConnectionEnd : {socket}";
+                log += $" - Connection : {socket}";
             log += $" -> {message}{Environment.NewLine}";
             if (Writer is var writer)
                 writer.TryWrite(log);

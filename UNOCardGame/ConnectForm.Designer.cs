@@ -37,7 +37,7 @@
             isDNS = new System.Windows.Forms.CheckBox();
             connect = new System.Windows.Forms.Button();
             host = new System.Windows.Forms.Button();
-            orLabel = new System.Windows.Forms.Label();
+            reconnect = new System.Windows.Forms.Button();
             SuspendLayout();
             // 
             // portLabel
@@ -100,7 +100,7 @@
             // 
             // connect
             // 
-            connect.Location = new System.Drawing.Point(129, 202);
+            connect.Location = new System.Drawing.Point(93, 202);
             connect.Name = "connect";
             connect.Size = new System.Drawing.Size(92, 40);
             connect.TabIndex = 7;
@@ -110,7 +110,7 @@
             // 
             // host
             // 
-            host.Location = new System.Drawing.Point(278, 202);
+            host.Location = new System.Drawing.Point(289, 202);
             host.Name = "host";
             host.Size = new System.Drawing.Size(92, 40);
             host.TabIndex = 8;
@@ -118,21 +118,23 @@
             host.UseVisualStyleBackColor = true;
             host.Click += host_Click;
             // 
-            // orLabel
+            // reconnect
             // 
-            orLabel.AutoSize = true;
-            orLabel.Location = new System.Drawing.Point(227, 215);
-            orLabel.Name = "orLabel";
-            orLabel.Size = new System.Drawing.Size(45, 15);
-            orLabel.TabIndex = 9;
-            orLabel.Text = "oppure";
+            reconnect.Enabled = false;
+            reconnect.Location = new System.Drawing.Point(191, 202);
+            reconnect.Name = "reconnect";
+            reconnect.Size = new System.Drawing.Size(92, 40);
+            reconnect.TabIndex = 9;
+            reconnect.Text = "Riconnettiti";
+            reconnect.UseVisualStyleBackColor = true;
+            reconnect.Click += reconnect_Click;
             // 
             // ConnectForm
             // 
             AutoScaleDimensions = new System.Drawing.SizeF(7F, 15F);
             AutoScaleMode = System.Windows.Forms.AutoScaleMode.Font;
             ClientSize = new System.Drawing.Size(489, 323);
-            Controls.Add(orLabel);
+            Controls.Add(reconnect);
             Controls.Add(host);
             Controls.Add(connect);
             Controls.Add(isDNS);
@@ -159,6 +161,6 @@
         private System.Windows.Forms.CheckBox isDNS;
         private System.Windows.Forms.Button connect;
         private System.Windows.Forms.Button host;
-        private System.Windows.Forms.Label orLabel;
+        private System.Windows.Forms.Button reconnect;
     }
 }
