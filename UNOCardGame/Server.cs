@@ -19,6 +19,8 @@ namespace UNOCardGame
     [SupportedOSPlatform("windows")]
     class Server
     {
+        public const int ADMIN_ID = 0;
+
         /// <summary>
         /// Timeout della connessione.
         /// </summary>
@@ -45,11 +47,11 @@ namespace UNOCardGame
         }
 
         /// <summary>
-        /// Tiene conto del numero degli user id.
+        /// Tiene conto del numero degli user id. Parte da 1 perché 0 è riservato all'host.
         /// Il numero degli ID deve essere ordinato e univoco per mantenere l'ordine dei turni.
         /// Non thread-safe, Interlocked deve essere usato per modificare la variabile.
         /// </summary>
-        private long IdCount = 0;
+        private long IdCount = 1;
 
         /// <summary>
         /// Indirizzo IP su cui ascolta il server.
@@ -144,6 +146,20 @@ namespace UNOCardGame
                 Cancellation = canc;
             }
 
+            /// <summary>
+            /// Crea il playerdata dell'host.
+            /// </summary>
+            /// <param name="player">Informazioni del player dell'host</param>
+            public PlayerData(Player player)
+            {
+                GenAccessCode();
+                Deck = Card.GenerateDeck(7);
+                Player = new Player(0, Deck.Count, false, player.Name, player.Personalizations);
+                Client = null;
+                ClientHandler = null;
+                Cancellation = null;
+            }
+
             public void GenAccessCode()
             {
                 byte[] buffer = new byte[sizeof(long)];
@@ -177,6 +193,9 @@ namespace UNOCardGame
             /// </summary>
             public List<Card> Deck { get; set; }
 
+            /// <summary>
+            /// Permette di terminare l'handler del client
+            /// </summary>
             public CancellationTokenSource Cancellation;
         }
 
@@ -219,7 +238,7 @@ namespace UNOCardGame
 
         ~Server()
         {
-            StopServer();
+            Stop();
             ListenerHandler.Dispose();
             BroadcasterHandler.Dispose();
             // TODO: Gamemaster
@@ -228,30 +247,41 @@ namespace UNOCardGame
             PlayersMutex.Dispose();
         }
 
-        public void StartServer()
+        /// <summary>
+        /// Avvia il server.
+        /// </summary>
+        /// <param name="player">Informazioni del player dell'host</param>
+        /// <returns>Access code per unirsi come host</returns>
+        public long Start(Player player)
         {
-            Log.Info("Initializing socket...");
+            Log.Info("Creazione dell'admin...");
+            var playerData = new PlayerData(player);
+            long accessCode = playerData.AccessCode;
+            Players.Add(ADMIN_ID, playerData);
+
+            Log.Info("Avvio socket...");
             InitSocket();
 
-            Log.Info("Creating communicator...");
             Communicator = Channel.CreateUnbounded<ChannelData>();
 
             // TODO: Gamemaster
 
             // Broadcaster
-            Log.Info("Starting broadcaster...");
+            Log.Info("Avvio broadcaster...");
             BroadcasterCancellation = new();
             BroadcasterHandler = new Task(async () => await Broadcaster(BroadcasterCancellation.Token));
             BroadcasterHandler.Start();
 
             // Listener
-            Log.Info("Starting listener...");
+            Log.Info("Avvio listener...");
             ListenerCancellation = new();
             ListenerHandler = new Task(async () => await Listener(ListenerCancellation.Token));
             ListenerHandler.Start();
+
+            return accessCode;
         }
 
-        public void StopServer()
+        public void Stop()
         {
             // Tempo di timeout
             const int timeOut = 1000;
@@ -290,15 +320,21 @@ namespace UNOCardGame
                         if (player.Value.Player.IsOnline)
                             player.Value.Client.Close();
                     }
-                    catch (Exception e)
+                    catch (Exception)
                     {
-                        Log.Error($"Failed to close client: {e}");
+                        continue;
                     }
                 }
                 ServerSocket.Close();
                 ServerSocket = null;
             }
         }
+
+        /// <summary>
+        /// Gestisce il gioco.
+        /// </summary>
+        /// <returns></returns>
+        private async Task GameMaster() { }
 
         /// <summary>
         /// Manda un pacchetto a tutti i client.
@@ -308,28 +344,26 @@ namespace UNOCardGame
         /// <returns></returns>
         private async Task BroadcastAll<T>(T packet) where T : Serialization<T>
         {
-            var clients = new List<Socket>();
-
-            // Copia i socket dei client per evitare di passare troppo tempo con il mutex bloccato
             PlayersMutex.WaitOne();
-            foreach (var player in Players)
-                if (player.Value.Player.IsOnline)
-                    clients.Add(player.Value.Client);
-            PlayersMutex.ReleaseMutex();
-
-            // Manda il messaggio a tutti i socket
-            foreach (var client in clients)
+            try
             {
-                try
-                {
-                    await Packet.Send(client, packet);
-                }
-                catch (PacketException e)
-                {
-                    if (e.ExceptionType == PacketExceptions.ConnectionClosed)
-                        return;
-                    Log.Error($"Errore durante la spedizione del pacchetto a un utente: {e}");
-                }
+                foreach (var player in Players)
+                    if (player.Value.Player.IsOnline)
+                        await Packet.Send(player.Value.Client, packet);
+            }
+            catch (PacketException e)
+            {
+                if (e.ExceptionType == PacketExceptions.ConnectionClosed)
+                    return;
+                Log.Error($"Errore durante la spedizione di un pacchetto ({packet.PacketId}): {e}");
+            }
+            catch (Exception e)
+            {
+                Log.Error($"Errore durante la spedizione di un pacchetto ({packet.PacketId}): {e}");
+            }
+            finally
+            {
+                PlayersMutex.ReleaseMutex();
             }
         }
 
@@ -342,28 +376,27 @@ namespace UNOCardGame
         /// <returns></returns>
         private async Task BroadcastTo<T>(uint id, T packet) where T : Serialization<T>
         {
-            Socket client;
-
-            // Prende il socket dalla lista dei player
+            // Manda il messaggio al player se è online, altrimenti viene ignorato
             PlayersMutex.WaitOne();
-            if (Players.TryGetValue(id, out var player))
-                client = player.Client;
-            else client = null;
-            PlayersMutex.ReleaseMutex();
-
-            // Manda il messaggio a tutti al socket se esiste, altrimenti viene ignorato
-            if (client != null)
+            try
             {
-                try
-                {
-                    await Packet.Send(client, packet);
-                }
-                catch (PacketException e)
-                {
-                    if (e.ExceptionType == PacketExceptions.ConnectionClosed)
-                        return;
-                    Log.Error($"Errore durante la spedizione del pacchetto all'utente con {id}: {e}");
-                }
+                if (Players.TryGetValue(id, out var player))
+                    if (player.Player.IsOnline)
+                        await Packet.Send(player.Client, packet);
+            }
+            catch (PacketException e)
+            {
+                if (e.ExceptionType == PacketExceptions.ConnectionClosed)
+                    return;
+                Log.Error($"Errore durante la spedizione del pacchetto ({packet.PacketId}) all'utente con {id}: {e}");
+            }
+            catch (Exception e)
+            {
+                Log.Error($"Errore durante la spedizione del pacchetto ({packet.PacketId}) all'utente con {id}: {e}");
+            }
+            finally
+            {
+                PlayersMutex.ReleaseMutex();
             }
         }
 
@@ -398,7 +431,7 @@ namespace UNOCardGame
         /// </summary>
         private async Task Broadcaster(CancellationToken canc)
         {
-            Log.Info("Broadcaster started.");
+            Log.Info("Broadcaster avviato.");
             IsBroadcasterRunning = true;
             try
             {
@@ -430,15 +463,12 @@ namespace UNOCardGame
                             }
                             break;
                         default:
+                            Log.Warn($"Il broadcaster ha ricevuto un pacchetto non riconosciuto: {packet.PacketId}");
                             break;
                     }
                 }
             }
-            catch (ObjectDisposedException)
-            {
-                Log.Info("Chiusura broadcaster...");
-            }
-            catch (OperationCanceledException)
+            catch (Exception e) when (e is OperationCanceledException || e is ObjectDisposedException)
             {
                 Log.Info("Chiusura broadcaster...");
             }
@@ -449,6 +479,72 @@ namespace UNOCardGame
             finally
             {
                 IsBroadcasterRunning = false;
+            }
+        }
+
+        /// <summary>
+        /// Ritorna l'ID partendo dal nome.
+        /// </summary>
+        /// <param name="name"></param>
+        /// <returns></returns>
+        private uint? FromName(string name)
+        {
+            uint? id = null;
+            PlayersMutex.WaitOne();
+            foreach (var player in Players)
+                if (player.Value.Player.Name == name)
+                    id = player.Value.Player.Id;
+            PlayersMutex.ReleaseMutex();
+            return id;
+        }
+
+        /// <summary>
+        /// Esegue un comando scritto in chat.
+        /// </summary>
+        /// <param name="id">ID dell'utente che ha fatto il comando</param>
+        /// <param name="msg">Contenuto del comando</param>
+        /// <returns>Ritorna true se il comando può essere mandato in chat</returns>
+        private async Task<bool> ExecCommand(uint id, string msg)
+        {
+            string[] args = msg.ToLower().Split(' ');
+            if (args[0] == "uno!")
+            {
+                // TODO: Implementare aggiunta di carte se non si dice UNO
+                return true;
+            }
+            // I comandi sono riservati all'admin
+            if (id != ADMIN_ID)
+                return true;
+            switch (args[0])
+            {
+                case ".help":
+                    await SendToClient(new ChatMessage(".help - Mostra questo messaggio\n.start - Avvia il gioco\n.kick - Rimuove un utente"), id);
+                    return false;
+                case ".start":
+                    HasStarted = true;
+                    await SendToClients(new ChatMessage("La partita è iniziata!"));
+                    return false;
+                case ".kick":
+                    if (args.Length >= 2)
+                    {
+                        string name = args[1];
+                        var _kickId = FromName(name);
+                        if (_kickId is uint kickId)
+                        {
+                            Log.Info($"Utente da kickare: {kickId}");
+                            if (kickId != ADMIN_ID)
+                                await SendToClients(new ChatMessage($"Utente {name} con {kickId}"));
+                        }
+                        else
+                            await SendToClient(new ChatMessage($"L'utente {name} non esiste"), id);
+                    }
+                    else
+                    {
+                        await SendToClient(new ChatMessage("Comando .kick non valido. Uso: .kick NomePlayer"), id);
+                    }
+                    return false;
+                default:
+                    return true;
             }
         }
 
@@ -488,28 +584,30 @@ namespace UNOCardGame
                             {
                                 var packet = await Packet.Receive<ChatMessage>(client);
                                 packet.FromId = userId;
-                                await SendToClients(packet);
+                                var toSend = await ExecCommand(userId, packet.Message);
+                                if (toSend)
+                                    await SendToClients(packet);
                             }
                             continue;
                         default:
-                            Log.Warn(client, $"Client sent an invalid packet type: {packetType}");
+                            Log.Warn(client, $"Client ha mandato un packet type non valido: {packetType}");
                             await Packet.CancelReceive(client);
                             continue;
                     }
                 }
                 catch (PacketException e)
                 {
-                    Log.Error(addr, $"Packet exception happened while handling client: {e}");
+                    Log.Error(addr, $"Packet exception durante l'handling di un client: {e}");
                     break;
                 }
-                catch (OperationCanceledException)
+                catch (Exception e) when (e is OperationCanceledException || e is ObjectDisposedException)
                 {
-                    Log.Info(addr, "Cancelling this listener...");
+                    Log.Info(addr, "Chiusura di questo client handler...");
                     break;
                 }
                 catch (Exception e)
                 {
-                    Log.Error(addr, $"Exception happened while handling client: {e}");
+                    Log.Error(addr, $"Errore durante l'handling di un client: {e}");
                     break;
                 }
             }
@@ -517,7 +615,7 @@ namespace UNOCardGame
         // Disconnessione possibilmente temporanea del client
         // I dati del giocatore vengono mantenuti in memoria.
         close:
-            Log.Info(addr, "Disconnecting client...");
+            Log.Info(addr, "Disconnessione client...");
 
             // Chiude la connessione
             client.Close();
@@ -532,19 +630,14 @@ namespace UNOCardGame
             PlayersMutex.ReleaseMutex();
 
             // Manda l'update della disconnessione
-            {
-                var playersUpdate = new PlayersUpdate(GetPlayersList());
-                await SendToClients(playersUpdate);
-
-                var msg = new ChatMessage($"{name} si è disconnesso");
-                await SendToClients(msg);
-            }
+            await UpdatePlayers();
+            await SendToClients(new ChatMessage($"{name} si è disconnesso"));
             return;
 
         // Disconnessione permanente del client.
         // I dati del giocatore vengono rimossi dalla memoria.
         abandon:
-            Log.Info(addr, "Removing client...");
+            Log.Info(addr, "Rimozione client...");
 
             // Chiude la connessione
             client.Close();
@@ -555,28 +648,24 @@ namespace UNOCardGame
             PlayersMutex.ReleaseMutex();
 
             // Manda l'update della rimozione del player
-            {
-                var playersUpdate = new PlayersUpdate(GetPlayersList());
-                await SendToClients(playersUpdate);
-
-                var msg = new ChatMessage($"{name} ha abbandonato");
-                await SendToClients(msg);
-            }
+            await UpdatePlayers();
+            await SendToClients(new ChatMessage($"{name} ha abbandonato"));
             return;
         }
 
         /// <summary>
-        /// Ritorna la lista con tutti i giocatori nel server.
+        /// Manda ai client la lista aggiornata di tutti i player
         /// </summary>
         /// <returns></returns>
-        private List<Player> GetPlayersList()
+        private async Task UpdatePlayers()
         {
             var players = new List<Player>();
             PlayersMutex.WaitOne();
             foreach (var player in Players)
                 players.Add((Player)player.Value.Player.Clone());
             PlayersMutex.ReleaseMutex();
-            return players;
+            var playersUpdate = new PlayersUpdate(players);
+            await SendToClients(playersUpdate);
         }
 
         /// <summary>
@@ -589,7 +678,7 @@ namespace UNOCardGame
         /// <returns></returns>
         private async Task NewConnectionHandler(Socket client)
         {
-            Log.Info(client, "Started new connection handler.");
+            Log.Info(client, "Avviato handler per la nuova connessione.");
 
             // Salva l'ip in caso di disconnessione improvvisa
             string addr = Logger.ToAddress(client);
@@ -599,7 +688,7 @@ namespace UNOCardGame
                 short packetName = await Packet.ReceiveType(client, null);
                 if (packetName != (short)PacketType.Join)
                 {
-                    Log.Warn(client, "Client sent invalid packet while joining");
+                    Log.Warn(client, "Il client ha mandato un pacchetto non valido durante la connessione");
                     var status = new JoinStatus("Pacchetto non valido, una richiesta Join deve essere mandata");
                     await Packet.Send(client, status);
                     goto close;
@@ -637,17 +726,14 @@ namespace UNOCardGame
                             clientHandler.Start();
 
                             // Manda la nuova lista dei player
-                            var playersList = new PlayersUpdate(GetPlayersList());
-                            await SendToClients(playersList);
-
-                            var msg = new ChatMessage($"Un nuovo player si è unito: {playerData.Player.Name}");
-                            await SendToClients(msg);
+                            await UpdatePlayers();
+                            await SendToClients(new ChatMessage($"Un nuovo player si è unito: {playerData.Player.Name}"));
 
                             return;
                         }
                         else
                         {
-                            Log.Warn(client, "New client tried to connect while playing");
+                            Log.Warn(client, "Un nuovo client ha provato ad unirsi durante la partita");
                             var status = new JoinStatus("Il gioco è già iniziato");
                             await Packet.Send(client, status);
                             goto close;
@@ -670,10 +756,14 @@ namespace UNOCardGame
                                     clientHandler = new Task(async () => await ClientHandler(client, userId, name, cancSource.Token));
                                     player.GenAccessCode();
                                     newAccessCode = player.AccessCode;
-                                    player.Cancellation.Cancel();
-                                    if (!player.ClientHandler.IsCompleted)
-                                        player.ClientHandler.Wait();
-                                    player.ClientHandler.Dispose();
+                                    if (player.Cancellation != null)
+                                        player.Cancellation.Cancel();
+                                    if (player.ClientHandler != null)
+                                    {
+                                        if (!player.ClientHandler.IsCompleted)
+                                            player.ClientHandler.Wait();
+                                        player.ClientHandler.Dispose();
+                                    }
                                     player.Cancellation = cancSource;
                                     player.ClientHandler = clientHandler;
                                     player.Client = client;
@@ -702,11 +792,8 @@ namespace UNOCardGame
                             clientHandler.Start();
 
                             // Manda la lista dei player al giocatore
-                            var playersList = new PlayersUpdate(GetPlayersList());
-                            await SendToClients(playersList);
-
-                            var msg = new ChatMessage($"{name} si è riconnesso");
-                            await SendToClients(msg);
+                            await UpdatePlayers();
+                            await SendToClients(new ChatMessage($"{name} si è riconnesso"));
 
                             return;
                         }
@@ -723,14 +810,14 @@ namespace UNOCardGame
             }
             catch (PacketException e)
             {
-                Log.Error(addr, $"Packet exception occurred while handling new connection: {e}");
+                Log.Error(addr, $"Packet exception nell'handling di una nuova connessione: {e}");
             }
             catch (Exception e)
             {
-                Log.Error(addr, $"Exception occurred while handling a new connection: {e}");
+                Log.Error(addr, $"Errore durante l'handling di una nuova connessione: {e}");
             }
         close:
-            Log.Info(addr, "Disconnecting...");
+            Log.Info(addr, "Disconnessione del client...");
             client.Close();
         }
 
@@ -755,25 +842,25 @@ namespace UNOCardGame
         private async Task Listener(CancellationToken canc)
         {
             ServerSocket.Listen(1000);
-            Log.Info("Listener started.");
+            Log.Info("Listener avviato.");
             while (true)
             {
                 Socket client;
                 try
                 {
                     // Accetta nuove connessioni
-                    Log.Info("Waiting for connections...");
+                    Log.Info("Aspettando nuove connessioni...");
                     client = await ServerSocket.AcceptAsync(canc);
-                    Log.Info(client, "New connection accepted");
+                    Log.Info(client, "Nuova connessione accettata");
                 }
                 catch (OperationCanceledException)
                 {
-                    Log.Info("Closing listener...");
+                    Log.Info("Chiusura listener...");
                     return;
                 }
                 catch (Exception e)
                 {
-                    Log.Error($"An exception occurred while listening for new connections: {e}");
+                    Log.Error($"Errore durante l'accept di una nuova connessione: {e}");
                     continue;
                 }
 
@@ -782,7 +869,7 @@ namespace UNOCardGame
                 client.SendTimeout = TimeOutMillis;
 
                 // Avvia Task per l'accettazione del client
-                Log.Info(client, "Starting handler...");
+                Log.Info(client, "Avvio handler...");
                 new Task(async () => await NewConnectionHandler(client)).Start();
             }
         }

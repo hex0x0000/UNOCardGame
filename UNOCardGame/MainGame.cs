@@ -126,34 +126,40 @@ namespace UNOCardGame
 
         private void Interface_Load(object sender, EventArgs e)
         {
+            Enabled = false;
+            long? hostAccessCode = null;
             if (Server is Server server)
             {
                 try
                 {
-                    ServiceMessage("Avvio Server...");
-                    server.StartServer();
+                    hostAccessCode = server.Start(Client.Player);
                 }
                 catch (Exception ex)
                 {
-                    MessageBox.Show($"Impossibile far partire il server: {ex}");
+                    MessageBox.Show($"Impossibile far partire il server: {ex.Message}");
+                    Abandon = true;
                     Close();
+                    return;
                 }
-                ServiceMessage("Avvio riuscito.");
+                ServiceMessage("Avvio del server riuscito.");
             }
 
             try
             {
-                ServiceMessage($"Connessione al server ({((Client.ServerDNS != null) ? Client.ServerDNS : Client.ServerIP)}:{Client.ServerPort})...");
-                Client.Start();
+                if (Client.Start(hostAccessCode))
+                {
+                    ServiceMessage($"Connessione al server ({((Client.ServerDNS != null) ? Client.ServerDNS : Client.ServerIP)}:{Client.ServerPort}) riuscita.");
+                    Enabled = true;
+                }
             }
             catch (Exception ex)
             {
-                MessageBox.Show($"Impossibile far partire il client: {ex}");
+                MessageBox.Show($"Impossibile far partire il client: {ex.Message}");
                 if (Server != null)
-                    Server.StopServer();
+                    Server.Stop();
+                Abandon = false;
                 Close();
             }
-            ServiceMessage("Connessione riuscita.");
         }
 
         private void msgSendButton_Click(object sender, EventArgs e)
@@ -220,6 +226,7 @@ namespace UNOCardGame
         void ForceCloseGame(string errMsg, bool abandon)
         {
             Abandon = abandon;
+            Enabled = false;
             if (errMsg != null)
                 MessageBox.Show(errMsg);
             Close();
@@ -231,6 +238,7 @@ namespace UNOCardGame
         /// <param name="e"></param>
         protected override void OnFormClosing(FormClosingEventArgs e)
         {
+            Enabled = false;
             if (Server == null)
             {
                 if (Abandon is bool abandon)
@@ -241,7 +249,7 @@ namespace UNOCardGame
             }
             else Client.Close(true);
             if (Server is Server server)
-                server.StopServer();
+                server.Stop();
             base.OnFormClosing(e);
         }
     }

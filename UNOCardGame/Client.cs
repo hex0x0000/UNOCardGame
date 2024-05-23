@@ -137,6 +137,20 @@ namespace UNOCardGame
             }
         }
 
+        private volatile int _HasErrors = 0;
+
+        /// <summary>
+        /// Questa proprietà può essere modificata in modo thread-safe.
+        /// </summary>
+        private bool HasErrors
+        {
+            get => (Interlocked.CompareExchange(ref _HasErrors, 1, 1) == 1); set
+            {
+                if (value) Interlocked.CompareExchange(ref _HasErrors, 1, 0);
+                else Interlocked.CompareExchange(ref _HasErrors, 0, 1);
+            }
+        }
+
         /// <summary>
         /// Dati mandati tramite il Writer
         /// </summary>
@@ -186,30 +200,48 @@ namespace UNOCardGame
         /// <summary>
         /// Avvia il client.
         /// </summary>
-        public void Start()
+        public bool Start(long? hostAccessCode)
         {
             if (!HasConnected)
             {
-                // Connette il socket
+                // Prima fase: Connette il socket
                 var connectTask = new Task(async () => await Connect());
                 connectTask.Start();
                 connectTask.Wait();
 
                 // Aspetta che venga stabilita la connessione con il server
-                while (!HasConnected) ;
+                while (!HasConnected)
+                    if (HasErrors)
+                        return false;
 
+                // Seconda fase: richiesta di Join
+                HasConnected = false;
                 if (connectTask.IsCompletedSuccessfully)
                 {
-                    // Manda richiesta di Join
-                    var joinHandler = (AccessCode == null) ? new Task(async () => await Join()) : new Task(async () => await Rejoin());
+                    Task joinHandler;
+                    if (hostAccessCode is long _hostAccessCode)
+                        // Host della partita
+                        joinHandler = new Task(async () => await Rejoin(_hostAccessCode));
+                    else if (AccessCode != null)
+                        // Rejoin a un server
+                        joinHandler = new Task(async () => await Rejoin(null));
+                    else
+                        // Join normale
+                        joinHandler = new Task(async () => await Join());
                     joinHandler.Start();
                     joinHandler.Wait();
-                    if (joinHandler.IsFaulted)
-                        throw joinHandler.Exception;
+
+                    // Aspetta che il client finisca di connettersi
+                    while (!HasConnected)
+                        if (HasErrors)
+                            return false;
+                    return true;
                 }
                 else if (connectTask.IsFaulted)
                     throw connectTask.Exception;
+                return false;
             }
+            else return false;
         }
 
         /// <summary>
@@ -454,6 +486,7 @@ namespace UNOCardGame
             }
             catch (Exception e)
             {
+                HasErrors = true;
                 string errMsg = $"IP o DNS non valido: {e}";
                 Log.Error(errMsg);
                 ForceClose.Report((errMsg, true));
@@ -476,6 +509,7 @@ namespace UNOCardGame
             }
             catch (Exception e)
             {
+                HasErrors = true;
                 string errMsg = $"Impossibile connettersi al server: {e}";
                 Log.Error(errMsg);
                 ForceClose.Report((errMsg, true));
@@ -513,8 +547,8 @@ namespace UNOCardGame
                 await Packet.Send(ServerSocket, joinRequest);
 
                 // Riceve lo status della richiesta
-                var responseType = await Packet.ReceiveType(ServerSocket, null);
-                if (responseType == (short)PacketType.JoinStatus)
+                var packetType = await Packet.ReceiveType(ServerSocket, null);
+                if (packetType == (short)PacketType.JoinStatus)
                 {
                     var status = await Packet.Receive<JoinStatus>(ServerSocket);
                     if (status.Player is var playerData && status.AccessCode is long accessCode)
@@ -525,6 +559,7 @@ namespace UNOCardGame
 
                         // Avvia gli handler della connessione
                         StartHandlers();
+                        HasConnected = true;
                         return;
                     }
                     else if (status.Err is var error)
@@ -532,6 +567,7 @@ namespace UNOCardGame
                     else
                         msg = $"Status della connessione mandato dal server non valido: {status.Serialize()}";
                 }
+                else msg = $"Il server ha mandato un pacchetto non valido: {packetType}";
             }
             catch (PacketException e)
             {
@@ -543,8 +579,8 @@ namespace UNOCardGame
             catch (Exception e)
             {
                 msg = $"Errore durante la connessione al server: {e}";
-
             }
+            HasErrors = true;
             if (msg != null)
                 Log.Error(msg);
             ForceClose.Report((msg, true));
@@ -554,12 +590,17 @@ namespace UNOCardGame
         /// Manda la richiesta per riunirsi al server.
         /// </summary>
         /// <returns></returns>
-        private async Task Rejoin()
+        private async Task Rejoin(long? hostAccessCode)
         {
             string msg = "Riconnessione al server fallita: ";
             uint id;
             long accessCode;
-            if (Player != null)
+            if (hostAccessCode is long _hostAccessCode)
+            {
+                id = 0;
+                accessCode = _hostAccessCode;
+            }
+            else if (Player != null)
                 if (Player.Id is uint _id)
                 {
                     id = _id;
@@ -589,8 +630,8 @@ namespace UNOCardGame
                 await Packet.Send(ServerSocket, rejoinRequest);
 
                 // Riceve lo status della richiesta
-                var responseType = await Packet.ReceiveType(ServerSocket, null);
-                if (responseType == (short)PacketType.JoinStatus)
+                var packetType = await Packet.ReceiveType(ServerSocket, null);
+                if (packetType == (short)PacketType.JoinStatus)
                 {
                     var status = await Packet.Receive<JoinStatus>(ServerSocket);
                     if (status.AccessCode is long newAccessCode)
@@ -598,6 +639,7 @@ namespace UNOCardGame
                         // Salva il nuovo access code
                         AccessCode = newAccessCode;
                         StartHandlers();
+                        HasConnected = true;
                         return;
                     }
                     else if (status.Err is string error)
@@ -605,6 +647,7 @@ namespace UNOCardGame
                     else
                         msg += $"Status della connessione mandato dal server non valido: {status.Serialize()}";
                 }
+                else msg += $"Il server ha mandato un pacchetto non valido: {packetType}";
             }
             catch (PacketException e)
             {
@@ -615,6 +658,7 @@ namespace UNOCardGame
             }
 
         close:
+            HasErrors = true;
             Log.Error(msg);
             ForceClose.Report((msg, false));
         }
