@@ -20,7 +20,14 @@ namespace UNOCardGame.Packets
         /// </summary>
         public bool Final { get; } = false;
 
+        /// <summary>
+        /// Messaggio mandato dal server dopo la disconnessione
+        /// </summary>
+        [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+        public string Message { get; }
+
         [JsonConstructor]
-        public ConnectionEnd(bool final) => Final = final;
+        public ConnectionEnd(bool final, string message)
+        { Final = final; Message = message; }
     }
 }

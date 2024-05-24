@@ -255,7 +255,7 @@ namespace UNOCardGame
                     ListenerCancellation.Cancel();
 
                 if (IsSenderRunning)
-                    Send(new ConnectionEnd(abandon));
+                    Send(new ConnectionEnd(abandon, null));
 
                 // Aspetta che il sender mandi la disconnessione
                 while (IsSenderRunning) ;
@@ -368,7 +368,7 @@ namespace UNOCardGame
                         case PacketType.ConnectionEnd:
                             {
                                 var packet = await Packet.Receive<ConnectionEnd>(ServerSocket);
-                                ForceClose.Report(("Il server è stato chiuso", true));
+                                ForceClose.Report((packet.Message, packet.Final));
                                 return;
                             }
                         case PacketType.ChatMessage:

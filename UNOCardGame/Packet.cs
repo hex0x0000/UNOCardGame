@@ -48,7 +48,9 @@ namespace UNOCardGame
         JoinStatus,
         PlayerUpdate,
         ChatMessage,
-        ConnectionEnd
+        ConnectionEnd,
+        TurnUpdate,
+        CardsUpdate
     }
 
     /// <summary>

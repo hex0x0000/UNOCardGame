@@ -148,12 +148,6 @@ namespace UNOCardGame
         public bool IsOnline { get; set; }
 
         /// <summary>
-        /// Numero di carte del giocatore.
-        /// </summary>
-        [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
-        public int? CardsNum { get; set; }
-
-        /// <summary>
         /// Nome del giocatore.
         /// </summary>
         public string Name { get; }
@@ -177,12 +171,11 @@ namespace UNOCardGame
         /// <param name="name">Username del giocatore</param>
         /// <param name="personalizations">Personalizzazioni</param>
         [JsonConstructor]
-        public Player(uint? id, int? cardsNum, bool isOnline, string name, Personalization personalizations)
+        public Player(uint? id, bool isOnline, string name, Personalization personalizations)
         {
             Id = id;
             Name = name;
             IsOnline = isOnline;
-            CardsNum = cardsNum;
             if (personalizations != null)
                 Personalizations = personalizations;
             else
@@ -195,7 +188,7 @@ namespace UNOCardGame
         /// <param name="isFocused">Ingrandisce il label, usato quando è il turno di un giocatore</param>
         /// <returns></returns>
         [SupportedOSPlatform("windows")]
-        public Label GetAsLabel(bool isFocused)
+        public Label GetAsLabel(bool isFocused, int cardsNum)
         {
             ToolTip toolTip = new()
             {
@@ -211,11 +204,11 @@ namespace UNOCardGame
                 BackColor = Personalizations.BackgroundColor.ToColor(),
             };
             // Imposta un tooltip che mostra il numero di carte di questo giocatore
-            toolTip.SetToolTip(label, $"{Name} ha {CardsNum} carte");
+            toolTip.SetToolTip(label, $"{Name} ha {cardsNum} carte");
             return label;
         }
 
-        public object Clone() => new Player(Id, CardsNum, IsOnline, (string)Name.Clone(), (Personalization)Personalizations.Clone());
+        public object Clone() => new Player(Id, IsOnline, (string)Name.Clone(), (Personalization)Personalizations.Clone());
 
         public override string ToString() => (IsOnline) ? Name : $"{Name} (Offline)";
     }

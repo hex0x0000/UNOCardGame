@@ -11,10 +11,77 @@ using System.Runtime.Versioning;
 
 namespace UNOCardGame
 {
+    public class Deck
+    {
+        /// <summary>
+        /// Numero di carte iniziale per ogni giocatore
+        /// </summary>
+        private const int InitNum = 7;
+        
+        /// <summary>
+        /// Numero di carte massimo
+        /// </summary>
+        private const int MaxNum = 108;
+
+        private uint _IdCounter;
+        
+        public List<Card> Cards { get; private set; }
+        
+        public Deck()
+        {
+            _IdCounter = 0;
+            Cards = new();
+            Add(InitNum);
+        }
+
+        /// <summary>
+        /// Aggiunge un certo numero di carte al mazzo
+        /// </summary>
+        /// <param name="n">Numero di carte da aggiungere</param>
+        public void Add(uint n)
+        {
+            if (Cards.Count >= MaxNum)
+                return;
+            for (uint i = 0; i < n; i++)
+            {
+                var card = Card.PickRandom();
+                card.Id = _IdCounter;
+                Cards.Add(card);
+                _IdCounter++;
+            }
+        }
+
+        /// <summary>
+        /// Rimuove la carta dal mazzo
+        /// </summary>
+        /// <param name="cardId">ID della carta</param>
+        public void Remove(uint cardId)
+        {
+            for (int i = 0; i < Cards.Count; i++)
+            {
+                if (Cards[i].Id == cardId)
+                    Cards.RemoveAt(i);
+            }
+        } 
+
+        
+        public Card Get(uint cardId)
+        {
+            Card retCard = null;
+            foreach (var card in Cards)
+                if (card.Id == cardId)
+                {
+                    retCard = card;
+                    break;
+                }
+            return retCard;
+        }
+    }
+
     /// <summary>
     /// Tipo della carta
     /// </summary>
-    enum Type
+    public enum Type
     {
         Normal, // 100 carte su 108
         Special // 8 carte su 108
@@ -23,7 +90,7 @@ namespace UNOCardGame
     /// <summary>
     /// Colore delle carte normali.
     /// </summary>
-    enum Colors
+    public enum Colors
     {
         Red, // Stesse probabilità (1/4)
         Green,
@@ -36,7 +103,7 @@ namespace UNOCardGame
     /// Per ogni tipo sono presenti due copie di carte,
     /// a parte per lo 0 che ne ha solo una.
     /// </summary>
-    enum Normals
+    public enum Normals
     {
         Zero, // 4 carte su 100 (1/25 di probabilità)
         One, // 8 carte su 100 (2/25 di probabilità)
@@ -56,7 +123,7 @@ namespace UNOCardGame
     /// <summary>
     /// Carte speciali
     /// </summary>
-    enum Specials
+    public enum Specials
     {
         PlusFour, // Stesse probabilità (1/2)
         ChangeColor
@@ -66,14 +133,14 @@ namespace UNOCardGame
     /// Classe della Carta.
     /// Contiene tutte le informazioni della carta e le sue utilities.
     /// </summary>
-    class Card
+    public class Card
     {
         /// <summary>
         /// L'ID della carta nel server.
         /// Viene usato dal server per riconoscere la carta nell'hashmap del server.
         /// </summary>
         [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
-        public int? Id { get; }
+        public uint? Id { get; set; }
 
         private Type _Type;
 
@@ -195,7 +262,7 @@ namespace UNOCardGame
         /// <param name="specialType"></param>
         /// <param name="id"></param>
         [JsonConstructor]
-        public Card(Type type, Colors? color, Normals? normalType, Specials? specialType, int? id)
+        public Card(Type type, Colors? color, Normals? normalType, Specials? specialType, uint? id)
         {
             Type = type; Color = color; NormalType = normalType; SpecialType = specialType; Id = id;
         }
@@ -277,19 +344,6 @@ namespace UNOCardGame
                 default:
                     return null;
             }
-        }
-
-        /// <summary>
-        /// Genera un nuovo deck di carte tramite Cards.PickRandom()
-        /// </summary>
-        /// <param name="n">Numero di carte nel deck</param>
-        /// <returns>Nuovo deck di carte</returns>
-        public static List<Card> GenerateDeck(uint n)
-        {
-            var deck = new List<Card>();
-            for (uint i = 0; i < n; i++)
-                deck.Add(PickRandom());
-            return deck;
         }
 
         public override string ToString()
