@@ -17,16 +17,16 @@ namespace UNOCardGame
         /// Numero di carte iniziale per ogni giocatore
         /// </summary>
         private const int InitNum = 7;
-        
+
         /// <summary>
         /// Numero di carte massimo
         /// </summary>
         private const int MaxNum = 108;
 
         private uint _IdCounter;
-        
+
         public List<Card> Cards { get; private set; }
-        
+
         public Deck()
         {
             _IdCounter = 0;
@@ -62,9 +62,9 @@ namespace UNOCardGame
                 if (Cards[i].Id == cardId)
                     Cards.RemoveAt(i);
             }
-        } 
+        }
 
-        
+
         public Card Get(uint cardId)
         {
             Card retCard = null;
@@ -158,29 +158,32 @@ namespace UNOCardGame
             }
         }
 
-        private Colors? _Color;
-        
+        private Colors _Color;
+
         /// <summary>
-        /// Il colore della carta, se è una carta normale
+        /// Il colore della carta, se è una carta normale.
+        /// Altrimenti rappresenta il colore scelto dall'utente se è una carta speciale
         /// </summary>
         [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
-        public Colors? Color {
+        public Colors Color
+        {
             get => _Color;
-            private set
+            set
             {
-                if (value != null && ((int)value < 0 || (int)value >= _ColorsEnumLength))
+                if (((int)value < 0 || (int)value >= _ColorsEnumLength))
                     throw new ArgumentOutOfRangeException(nameof(Colors), "Enum must stay within its range");
                 _Color = value;
             }
         }
 
         private Normals? _NormalType;
-        
+
         /// <summary>
         /// Il tipo della carta, se è una carta normale
         /// </summary>
         [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
-        public Normals? NormalType {
+        public Normals? NormalType
+        {
             get => _NormalType;
             private set
             {
@@ -191,12 +194,13 @@ namespace UNOCardGame
         }
 
         private Specials? _SpecialType;
-        
+
         /// <summary>
         /// Il tipo della carta, se è una carta speciale
         /// </summary>
         [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
-        public Specials? SpecialType {
+        public Specials? SpecialType
+        {
             get => _SpecialType;
             private set
             {
@@ -247,10 +251,11 @@ namespace UNOCardGame
         /// Inizializza la carta come carta speciale (senza colore, capace di cambiare il colore nella partita).
         /// </summary>
         /// <param name="specialType">Tipo di carta</param>
-        public Card(Specials specialType)
+        public Card(Specials specialType, Colors chosenColor)
         {
             Type = Type.Special;
             SpecialType = specialType;
+            Color = chosenColor;
         }
 
         /// <summary>
@@ -262,7 +267,7 @@ namespace UNOCardGame
         /// <param name="specialType"></param>
         /// <param name="id"></param>
         [JsonConstructor]
-        public Card(Type type, Colors? color, Normals? normalType, Specials? specialType, uint? id)
+        public Card(Type type, Colors color, Normals? normalType, Specials? specialType, uint? id)
         {
             Type = type; Color = color; NormalType = normalType; SpecialType = specialType; Id = id;
         }
@@ -281,6 +286,26 @@ namespace UNOCardGame
             btn.Size = new System.Drawing.Size(150, 250);
             btn.Click += (args, events) => fn(this);
             return btn;
+        }
+
+        /// <summary>
+        /// Controlla che una carta possa essere messa su questa
+        /// </summary>
+        /// <param name="other"></param>
+        /// <returns></returns>
+        public bool IsCompatible(Card other)
+        {
+            if (other.Type == Type.Special) return true;
+            switch (Type)
+            {
+                case Type.Normal:
+                    if (NormalType == other.NormalType || Color == other.Color) return true;
+                    break;
+                case Type.Special:
+                    if (Color == other.Color) return true;
+                    break;
+            }
+            return false;
         }
 
         /// <summary>
@@ -340,9 +365,20 @@ namespace UNOCardGame
                 case Type.Normal:
                     return new Card((Normals)PickRandomEnum<Normals>(), (Colors)PickRandomEnum<Colors>());
                 case Type.Special:
-                    return new Card((Specials)PickRandomEnum<Specials>());
+                    return new Card((Specials)PickRandomEnum<Specials>(), Colors.Red); // Il colore può essere cambiato successivamente
                 default:
                     return null;
+            }
+        }
+
+        public static Card PickNormalRandom()
+        {
+            while (true)
+            {
+                var card = PickRandom();
+                if (card.Type != Type.Normal || card.NormalType == Normals.PlusTwo || card.NormalType == Normals.Block || card.NormalType == Normals.Reverse)
+                    continue;
+                return card;
             }
         }
 

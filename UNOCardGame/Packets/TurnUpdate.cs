@@ -8,14 +8,8 @@ using System.Threading.Tasks;
 namespace UNOCardGame.Packets
 {
     /// <summary>
-    /// Direzione dei turni
+    /// Aggiorna lo stato del gioco e del turno
     /// </summary>
-    public enum TurnDirection
-    {
-        RighToLeft,
-        LeftToRight
-    }
-
     public class TurnUpdate : Serialization<TurnUpdate>
     {
         [JsonIgnore]
@@ -24,22 +18,52 @@ namespace UNOCardGame.Packets
         /// <summary>
         /// ID del player di questo turno
         /// </summary>
-        public uint PlayerId { get; }
+        [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+        public uint? PlayerId { get; }
 
         /// <summary>
         /// Carta sul tavolo in questo turno
         /// </summary>
+        [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
         public Card TableCard { get; }
 
         /// <summary>
         /// Senso della direzione dei turni, se da sinistra a destra o destra a sinistra
         /// </summary>
-        public TurnDirection Direction { get; }
+        [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+        public bool? IsLeftToRight { get; }
+
+        /// <summary>
+        /// Numero di carte di ogni giocatore
+        /// </summary>
+        [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+        public Dictionary<uint, int> PlayersCardsNum { get; } = null;
+
+        /// <summary>
+        /// Carte del giocatore mandate dal server al client
+        /// </summary>
+        [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+        public List<Card> NewCards { get; } = null;
+
+        /// <summary>
+        /// Carte del mazzo mandate al singolo giocatore
+        /// </summary>
+        /// <param name="newCards">Lista delle carte del giocatore</param>
+        public TurnUpdate(List<Card> newCards) => NewCards = newCards;
+
+        /// <summary>
+        /// Update dello stato della partita a tutti i giocatori
+        /// </summary>
+        /// <param name="playersCardsNum">Dictionary con l'ID del giocatore e il numero di carte</param>
+        public TurnUpdate(uint playerId, Card tableCard, bool isLeftToRight, Dictionary<uint, int> playersCardsNum)
+        {
+            PlayersCardsNum = playersCardsNum;
+        }
 
         [JsonConstructor]
-        public TurnUpdate(uint playerUpdate, Card tableCard, TurnDirection turnDirection)
+        public TurnUpdate(uint? playerUpdate, Card tableCard, bool? isLeftToRight, Dictionary<uint, uint> playersCardsNum, List<Card> newCards)
         {
-            PlayerId = playerUpdate; TableCard = tableCard; Direction = turnDirection;
+            PlayerId = playerUpdate; TableCard = tableCard; IsLeftToRight = isLeftToRight; PlayersCardsNum = playersCardsNum; NewCards = newCards;
         }
     }
 }

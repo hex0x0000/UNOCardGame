@@ -50,7 +50,7 @@ namespace UNOCardGame
         ChatMessage,
         ConnectionEnd,
         TurnUpdate,
-        CardsUpdate
+        ActionUpdate
     }
 
     /// <summary>
