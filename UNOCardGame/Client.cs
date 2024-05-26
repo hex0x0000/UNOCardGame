@@ -20,15 +20,11 @@ namespace UNOCardGame
     /// <summary>
     /// Informazioni del messaggio che verrà visualizzato nella UI.
     /// </summary>
-    public struct MessageDisplay
+    public readonly struct MessageDisplay(Color? nameColor, string name, string message)
     {
-        public MessageDisplay(Color? nameColor, string name, string message)
-        {
-            NameColor = nameColor; Name = name; Message = message;
-        }
-        public readonly Color? NameColor;
-        public readonly string Name;
-        public readonly string Message;
+        public readonly Color? NameColor = nameColor;
+        public readonly string Name = name;
+        public readonly string Message = message;
     }
 
     [SupportedOSPlatform("windows")]
@@ -97,9 +93,19 @@ namespace UNOCardGame
         public IProgress<(string, bool)> ForceClose { get; set; } = null;
 
         /// <summary>
+        /// Aggiorna il turno
+        /// </summary>
+        public IProgress<TurnUpdate> TurnUpdate { get; set; } = null;
+
+        /// <summary>
+        /// Mostra un messaggio del gioco mandato dal server
+        /// </summary>
+        public IProgress<GameMessage> GameMessage { get; set; } = null;
+
+        /// <summary>
         /// Logger del client.
         /// </summary>
-        private Logger Log = new("CLIENT");
+        public Logger Log = new("CLIENT");
 
         /// <summary>
         /// Permette di mandare dati al Sender per mandare pacchetti
@@ -154,22 +160,17 @@ namespace UNOCardGame
         /// <summary>
         /// Dati mandati tramite il Writer
         /// </summary>
-        private struct ChannelData
+        private readonly struct ChannelData(short id, object data)
         {
-            public ChannelData(short id, object data)
-            {
-                PacketId = id; Data = data;
-            }
-
             /// <summary>
             /// PacketId di Data.
             /// </summary>
-            public readonly short PacketId;
+            public readonly short PacketId = id;
 
             /// <summary>
             /// Contenuto del pacchetto.
             /// </summary>
-            public readonly object Data;
+            public readonly object Data = data;
         }
 
         /// <summary>
@@ -312,7 +313,12 @@ namespace UNOCardGame
                             return;
                         case PacketType.ChatMessage:
                             await Packet.Send(ServerSocket, (ChatMessage)data.Data);
-                            Log.Info("Chat Message sent to Server");
+                            break;
+                        case PacketType.ActionUpdate:
+                            await Packet.Send(ServerSocket, (ActionUpdate)data.Data);
+                            break;
+                        default:
+                            Log.Info($"Il sender ha ricevuto un pacchetto non riconosciuto: {data.PacketId}");
                             break;
                     }
                 }
@@ -408,23 +414,41 @@ namespace UNOCardGame
                                 }
                             }
                             continue;
+                        case PacketType.GameMessage:
+                            {
+                                var packet = await Packet.Receive<GameMessage>(ServerSocket);
+                                GameMessage.Report(packet);
+                            }
+                            continue;
                         case PacketType.PlayerUpdate:
                             {
                                 var packet = await Packet.Receive<PlayersUpdate>(ServerSocket);
 
-                                if (packet.Players.Count == 0)
+                                if (packet.Players is List<Player> _players)
                                 {
-                                    Log.Warn("Server sent an invalid PlayersUpdate packet");
-                                    packetString = packet.Serialize();
-                                    goto invalid;
-                                }
+                                    if (_players.Count == 0)
+                                    {
+                                        Log.Warn("Server sent an invalid PlayersUpdate packet");
+                                        packetString = packet.Serialize();
+                                        goto invalid;
+                                    }
 
-                                players.Clear();
-                                foreach (var player in packet.Players)
-                                    if (player.Id is uint id)
-                                        players[id] = player;
+                                    players.Clear();
+                                    foreach (var player in _players)
+                                        if (player.Id is uint id)
+                                            players[id] = player;
+                                }
+                                else if (packet.Id is uint playerId && packet.IsOnline is bool isOnline)
+                                    if (players.TryGetValue(playerId, out var player))
+                                        player.IsOnline = isOnline;
 
                                 UpdatePlayers.Report(players.Values.ToList());
+                            }
+                            continue;
+                        case PacketType.TurnUpdate:
+                            {
+                                var packet = await Packet.Receive<TurnUpdate>(ServerSocket);
+                                TurnUpdate.Report(packet);
                             }
                             continue;
                         default:

@@ -34,6 +34,16 @@ namespace UNOCardGame
         private bool? Abandon = null;
 
         /// <summary>
+        /// Dice chi ha il turno e lo evidenzia quando vengono mostrati i giocatori
+        /// </summary>
+        private uint playerTurnId = Server.ADMIN_ID;
+
+        /// <summary>
+        /// Tiene conto del numero di carte di ogni player
+        /// </summary>
+        Dictionary<uint, int> playerCardsNum = new();
+
+        /// <summary>
         /// Font normale della chat
         /// </summary>
         private Font _ChatNormal;
@@ -79,6 +89,16 @@ namespace UNOCardGame
             var close = new Progress<(string, bool)>();
             close.ProgressChanged += (s, message) => ForceCloseGame(message.Item1, message.Item2);
             Client.ForceClose = close;
+
+            // Aggiorna il turno del gioco
+            var turnUpdate = new Progress<TurnUpdate>();
+            turnUpdate.ProgressChanged += (s, message) => TurnUpdate(message);
+            Client.TurnUpdate = turnUpdate;
+
+            // Messaggio da parte del server riguardo il gioco
+            var gameMsg = new Progress<GameMessage>();
+            gameMsg.ProgressChanged += (s, message) => ShowGameMessage(message);
+            Client.GameMessage = gameMsg;
         }
 
         /// <summary>
@@ -171,6 +191,51 @@ namespace UNOCardGame
             Client.Send(new ChatMessage(msg));
         }
 
+        private void drawButton_Click(object sender, EventArgs e)
+        {
+            Client.Send(new ActionUpdate(null, ActionType.Draw));
+        }
+
+        private void bluffButton_Click(object sender, EventArgs e)
+        {
+            Client.Send(new ActionUpdate(null, ActionType.CallBluff));
+        }
+
+        private int OnCardButtonClick(Card card)
+        {
+            Client.Send(new ActionUpdate(card.Id, null));
+            return 0;
+        }
+
+        private void TurnUpdate(TurnUpdate turn)
+        {
+            if (turn.TableCard is Card _tableCard && turn.PlayerId is uint _playerTurnId && turn.PlayersCardsNum is Dictionary<uint, int> _playerCardsNum)
+            {
+                tableCard.Text = _tableCard.ToString();
+                playerTurnId = _playerTurnId;
+                playerCardsNum = _playerCardsNum;
+            }
+            else if (turn.NewCards is List<Card> newCards)
+            {
+                cards.Controls.Clear();
+                foreach (var card in newCards)
+                    cards.Controls.Add(card.GetAsButton(OnCardButtonClick));
+            }
+            else Client.Log.Warn($"Il server ha mandato un TurnUpdate non valido: {turn.Serialize()}");
+        }
+
+        private void ShowGameMessage(GameMessage gameMessage)
+        {
+            MessageBoxIcon icon;
+            if (gameMessage.Type == MessageType.Error)
+                icon = MessageBoxIcon.Error;
+            else
+                icon = MessageBoxIcon.Information;
+            Enabled = false;
+            MessageBox.Show(gameMessage.ToString(), gameMessage.Type.ToString(), MessageBoxButtons.OK, icon);
+            Enabled = true;
+        }
+
         /// <summary>
         /// Messaggio di servizio messo nella chat dal client stesso.
         /// </summary>
@@ -217,7 +282,11 @@ namespace UNOCardGame
         {
             players.Controls.Clear();
             foreach (var player in _players)
-                players.Controls.Add(player.GetAsLabel(false));
+                if (player.Id is uint playerId)
+                    if (playerCardsNum.TryGetValue(playerId, out var cardsNum))
+                        players.Controls.Add(player.GetAsLabel(playerId == playerTurnId, cardsNum));
+                    else
+                        players.Controls.Add(player.GetAsLabel(false, 0));
         }
 
         /// <summary>
@@ -247,10 +316,14 @@ namespace UNOCardGame
                     Client.Close(true);
                 else Client.Close(false);
             }
-            else Client.Close(true);
+            else if (MessageBox.Show("Tutti i giocatore verranno disconnessi.", "Vuoi chiudere definitivamente il server?", MessageBoxButtons.YesNo, MessageBoxIcon.Question) == DialogResult.Yes)
+                Client.Close(true);
+            else return;
             if (Server is Server server)
                 server.Stop();
             base.OnFormClosing(e);
         }
+
+
     }
 }

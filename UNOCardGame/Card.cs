@@ -64,7 +64,11 @@ namespace UNOCardGame
             }
         }
 
-
+        /// <summary>
+        /// Prende una carta dal mazzo
+        /// </summary>
+        /// <param name="cardId">ID della carta</param>
+        /// <returns></returns>
         public Card Get(uint cardId)
         {
             Card retCard = null;
@@ -75,6 +79,19 @@ namespace UNOCardGame
                     break;
                 }
             return retCard;
+        }
+
+        /// <summary>
+        /// Dice se nel deck c'erano carte che potevano essere lanciate
+        /// </summary>
+        /// <param name="tableCard"></param>
+        /// <returns></returns>
+        public bool CouldSend(Card tableCard)
+        {
+            foreach (var card in Cards)
+                if (tableCard.IsCompatible(card))
+                    return true;
+            return false;
         }
     }
 
@@ -164,7 +181,6 @@ namespace UNOCardGame
         /// Il colore della carta, se è una carta normale.
         /// Altrimenti rappresenta il colore scelto dall'utente se è una carta speciale
         /// </summary>
-        [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
         public Colors Color
         {
             get => _Color;

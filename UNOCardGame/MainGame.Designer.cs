@@ -30,7 +30,6 @@ namespace UNOCardGame
         private void InitializeComponent()
         {
             drawButton = new System.Windows.Forms.Button();
-            testButton = new System.Windows.Forms.Button();
             cards = new System.Windows.Forms.FlowLayoutPanel();
             colorLabel = new System.Windows.Forms.Label();
             players = new System.Windows.Forms.FlowLayoutPanel();
@@ -41,6 +40,7 @@ namespace UNOCardGame
             msgWriteBox = new System.Windows.Forms.TextBox();
             msgSendButton = new System.Windows.Forms.Button();
             chat = new System.Windows.Forms.RichTextBox();
+            tableCard = new System.Windows.Forms.Label();
             SuspendLayout();
             // 
             // drawButton
@@ -53,16 +53,7 @@ namespace UNOCardGame
             drawButton.TabIndex = 2;
             drawButton.Text = "Pesca";
             drawButton.UseVisualStyleBackColor = true;
-            // 
-            // testButton
-            // 
-            testButton.Location = new System.Drawing.Point(578, 90);
-            testButton.Margin = new System.Windows.Forms.Padding(4, 3, 4, 3);
-            testButton.Name = "testButton";
-            testButton.Size = new System.Drawing.Size(225, 316);
-            testButton.TabIndex = 4;
-            testButton.Text = "Carta sul Tavolo";
-            testButton.UseVisualStyleBackColor = true;
+            drawButton.Click += drawButton_Click;
             // 
             // cards
             // 
@@ -136,6 +127,7 @@ namespace UNOCardGame
             bluffButton.TabIndex = 11;
             bluffButton.Text = "Bluff!";
             bluffButton.UseVisualStyleBackColor = true;
+            bluffButton.Click += bluffButton_Click;
             // 
             // msgWriteBox
             // 
@@ -166,11 +158,21 @@ namespace UNOCardGame
             chat.TabIndex = 15;
             chat.Text = "";
             // 
+            // tableCard
+            // 
+            tableCard.AutoSize = true;
+            tableCard.Location = new System.Drawing.Point(628, 225);
+            tableCard.Name = "tableCard";
+            tableCard.Size = new System.Drawing.Size(62, 15);
+            tableCard.TabIndex = 16;
+            tableCard.Text = "Table Card";
+            // 
             // MainGame
             // 
             AutoScaleDimensions = new System.Drawing.SizeF(7F, 15F);
             AutoScaleMode = System.Windows.Forms.AutoScaleMode.Font;
             ClientSize = new System.Drawing.Size(1408, 846);
+            Controls.Add(tableCard);
             Controls.Add(chat);
             Controls.Add(msgSendButton);
             Controls.Add(msgWriteBox);
@@ -181,7 +183,6 @@ namespace UNOCardGame
             Controls.Add(players);
             Controls.Add(colorLabel);
             Controls.Add(cards);
-            Controls.Add(testButton);
             Controls.Add(drawButton);
             Margin = new System.Windows.Forms.Padding(4, 3, 4, 3);
             Name = "MainGame";
@@ -193,7 +194,6 @@ namespace UNOCardGame
 
         #endregion
         private System.Windows.Forms.Button drawButton;
-        private System.Windows.Forms.Button testButton;
         private System.Windows.Forms.FlowLayoutPanel cards;
         private System.Windows.Forms.Label colorLabel;
         private System.Windows.Forms.FlowLayoutPanel players;
@@ -204,6 +204,7 @@ namespace UNOCardGame
         private System.Windows.Forms.TextBox msgWriteBox;
         private System.Windows.Forms.Button msgSendButton;
         private System.Windows.Forms.RichTextBox chat;
+        private System.Windows.Forms.Label tableCard;
     }
 }
 

@@ -29,7 +29,7 @@ namespace UNOCardGame.Packets
         public bool? IsOnline { get; }
 
         /// <summary>
-        /// Update dell'intera lista di player nel gioco.
+        /// Update dei player nel gioco
         /// </summary>
         /// <param name="players">Tutti i player nel server</param>
         public PlayersUpdate(List<Player> players, uint? id, bool? isOnline)

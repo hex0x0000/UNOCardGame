@@ -50,7 +50,8 @@ namespace UNOCardGame
         ChatMessage,
         ConnectionEnd,
         TurnUpdate,
-        ActionUpdate
+        ActionUpdate,
+        GameMessage
     }
 
     /// <summary>
@@ -107,7 +108,7 @@ namespace UNOCardGame
             catch (SocketException e)
             {
                 if (e.SocketErrorCode == SocketError.ConnectionReset || e.SocketErrorCode == SocketError.ConnectionAborted || e.SocketErrorCode == SocketError.ConnectionRefused)
-                    throw new PacketException(PacketExceptions.ConnectionClosed, "ConnectionEnd was closed.", e);
+                    throw new PacketException(PacketExceptions.ConnectionClosed, "Connection was closed", e);
                 throw new PacketException(PacketExceptions.SocketFailed, "Failed to receive name due to connection error", e);
             }
         }
@@ -137,7 +138,7 @@ namespace UNOCardGame
             catch (SocketException e)
             {
                 if (e.SocketErrorCode == SocketError.ConnectionReset || e.SocketErrorCode == SocketError.ConnectionAborted || e.SocketErrorCode == SocketError.ConnectionRefused)
-                    throw new PacketException(PacketExceptions.ConnectionClosed, "ConnectionEnd was closed.", e);
+                    throw new PacketException(PacketExceptions.ConnectionClosed, "Connection was closed", e);
                 throw new PacketException(PacketExceptions.SocketFailed, "Failed to receive name due to connection error", e);
             }
             catch (DecoderFallbackException e)
@@ -190,7 +191,7 @@ namespace UNOCardGame
             catch (SocketException e)
             {
                 if (e.SocketErrorCode == SocketError.ConnectionReset || e.SocketErrorCode == SocketError.ConnectionAborted || e.SocketErrorCode == SocketError.ConnectionRefused)
-                    throw new PacketException(PacketExceptions.ConnectionClosed, "ConnectionEnd was closed.", e);
+                    throw new PacketException(PacketExceptions.ConnectionClosed, "Connection was closed", e);
                 throw new PacketException(PacketExceptions.SocketFailed, "Failed to send packet due to connection error", e);
             }
             catch (NotSupportedException e)
@@ -224,7 +225,7 @@ namespace UNOCardGame
             catch (SocketException e)
             {
                 if (e.SocketErrorCode == SocketError.ConnectionReset || e.SocketErrorCode == SocketError.ConnectionAborted || e.SocketErrorCode == SocketError.ConnectionRefused)
-                    throw new PacketException(PacketExceptions.ConnectionClosed, "ConnectionEnd was closed.", e);
+                    throw new PacketException(PacketExceptions.ConnectionClosed, "Connection was closed", e);
                 throw new PacketException(PacketExceptions.SocketFailed, "Failed to receive packet due to connection error", e);
             }
             catch (DecoderFallbackException e)

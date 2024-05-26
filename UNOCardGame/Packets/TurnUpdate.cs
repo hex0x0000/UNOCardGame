@@ -8,7 +8,7 @@ using System.Threading.Tasks;
 namespace UNOCardGame.Packets
 {
     /// <summary>
-    /// Aggiorna lo stato del gioco e del turno
+    /// Aggiorna lo stato del gioco e del turno, mandato dal server ai giocatori
     /// </summary>
     public class TurnUpdate : Serialization<TurnUpdate>
     {
@@ -40,7 +40,7 @@ namespace UNOCardGame.Packets
         public Dictionary<uint, int> PlayersCardsNum { get; } = null;
 
         /// <summary>
-        /// Carte del giocatore mandate dal server al client
+        /// Nuove carte del giocatore
         /// </summary>
         [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
         public List<Card> NewCards { get; } = null;
@@ -57,13 +57,13 @@ namespace UNOCardGame.Packets
         /// <param name="playersCardsNum">Dictionary con l'ID del giocatore e il numero di carte</param>
         public TurnUpdate(uint playerId, Card tableCard, bool isLeftToRight, Dictionary<uint, int> playersCardsNum)
         {
-            PlayersCardsNum = playersCardsNum;
+            PlayersCardsNum = playersCardsNum; PlayerId = playerId; TableCard = tableCard; IsLeftToRight = isLeftToRight;
         }
 
         [JsonConstructor]
-        public TurnUpdate(uint? playerUpdate, Card tableCard, bool? isLeftToRight, Dictionary<uint, uint> playersCardsNum, List<Card> newCards)
+        public TurnUpdate(uint? playerId, Card tableCard, bool? isLeftToRight, Dictionary<uint, int> playersCardsNum, List<Card> newCards)
         {
-            PlayerId = playerUpdate; TableCard = tableCard; IsLeftToRight = isLeftToRight; PlayersCardsNum = playersCardsNum; NewCards = newCards;
+            PlayerId = playerId; TableCard = tableCard; IsLeftToRight = isLeftToRight; PlayersCardsNum = playersCardsNum; NewCards = newCards;
         }
     }
 }

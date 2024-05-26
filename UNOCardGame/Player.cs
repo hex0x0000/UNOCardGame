@@ -148,6 +148,13 @@ namespace UNOCardGame
         public bool IsOnline { get; set; }
 
         /// <summary>
+        /// Specifica il posto in classifica se il player ha vinto
+        /// Altrimenti null
+        /// </summary>
+        [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+        public int? Won { get; set; } = null;
+
+        /// <summary>
         /// Nome del giocatore.
         /// </summary>
         public string Name { get; }
@@ -171,11 +178,12 @@ namespace UNOCardGame
         /// <param name="name">Username del giocatore</param>
         /// <param name="personalizations">Personalizzazioni</param>
         [JsonConstructor]
-        public Player(uint? id, bool isOnline, string name, Personalization personalizations)
+        public Player(uint? id, bool isOnline, string name, Personalization personalizations, int? won)
         {
             Id = id;
             Name = name;
             IsOnline = isOnline;
+            Won = won;
             if (personalizations != null)
                 Personalizations = personalizations;
             else
@@ -190,11 +198,6 @@ namespace UNOCardGame
         [SupportedOSPlatform("windows")]
         public Label GetAsLabel(bool isFocused, int cardsNum)
         {
-            ToolTip toolTip = new()
-            {
-                IsBalloon = true
-            };
-
             Label label = new()
             {
                 AutoSize = true,
@@ -204,12 +207,27 @@ namespace UNOCardGame
                 BackColor = Personalizations.BackgroundColor.ToColor(),
             };
             // Imposta un tooltip che mostra il numero di carte di questo giocatore
-            toolTip.SetToolTip(label, $"{Name} ha {cardsNum} carte");
+            if (cardsNum > 0)
+            {
+                ToolTip toolTip = new()
+                {
+                    IsBalloon = true
+                };
+                toolTip.SetToolTip(label, $"{Name} ha {cardsNum} carte");
+            }
             return label;
         }
 
-        public object Clone() => new Player(Id, IsOnline, (string)Name.Clone(), (Personalization)Personalizations.Clone());
+        public object Clone() => new Player(Id, IsOnline, (string)Name.Clone(), (Personalization)Personalizations.Clone(), Won);
 
-        public override string ToString() => (IsOnline) ? Name : $"{Name} (Offline)";
+        public override string ToString()
+        {
+            string toStr = Name;
+            if (!IsOnline)
+                toStr += " (Offline)";
+            if (Won != null)
+                toStr += " (Ha vinto)";
+            return toStr;
+        }
     }
 }
