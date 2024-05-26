@@ -1,6 +1,7 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Runtime.CompilerServices;
 using System.Text;
 using System.Text.Json.Serialization;
 using System.Threading.Tasks;
@@ -13,7 +14,7 @@ namespace UNOCardGame.Packets
     public class ChatMessage : Serialization<ChatMessage>
     {
         [JsonIgnore]
-        public const int MSG_MAX_CHAR = 200;
+        public const int MSG_MAX_CHARS = 200;
 
         [JsonIgnore]
         public override short PacketId => (short)PacketType.ChatMessage;
@@ -32,10 +33,8 @@ namespace UNOCardGame.Packets
         /// </summary>
         public string Message
         {
-            get => _Message; private set {
-                if (value.Length < MSG_MAX_CHAR) _Message = value;
-                else throw new ArgumentOutOfRangeException(nameof(value), $"Un messaggio può avere al massimo {MSG_MAX_CHAR} caratteri");
-            }
+            get => _Message;
+            private set => _Message = MsgCut(value.Trim().Replace("\n", ""));
         }
 
         /// <summary>
@@ -49,5 +48,7 @@ namespace UNOCardGame.Packets
         {
             FromId = fromId; Message = message;
         }
+
+        private static string MsgCut(string value) => value.Length <= MSG_MAX_CHARS ? value : value.Substring(0, MSG_MAX_CHARS);
     }
 }

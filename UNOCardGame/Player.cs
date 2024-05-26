@@ -6,6 +6,7 @@ using System.Runtime.Versioning;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using System.Text.RegularExpressions;
 using System.Threading.Tasks;
 using System.Windows.Forms;
 
@@ -136,6 +137,8 @@ namespace UNOCardGame
     /// </summary>
     public class Player : ICloneable
     {
+        const int NAME_MAX_CHARS = 8;
+
         /// <summary>
         /// ID del giocatore nel server. Viene usato per riconoscerlo.
         /// </summary>
@@ -155,9 +158,28 @@ namespace UNOCardGame
         public int? Won { get; set; } = null;
 
         /// <summary>
+        /// Taglia il nome del player per farlo stare in NAME_MAX_CHARS caratteri.
+        /// </summary>
+        private static string NameCut(string value) => value.Length <= NAME_MAX_CHARS ? value : value.Substring(0, NAME_MAX_CHARS);
+
+        /// <summary>
+        /// Lettere non alfanumeriche
+        /// </summary>
+        private static readonly Regex _NonAlphaNum = new("[^a-zA-Z0-9]", RegexOptions.Compiled);
+
+        private string _Name;
+
+        /// <summary>
         /// Nome del giocatore.
         /// </summary>
-        public string Name { get; }
+        public string Name
+        {
+            get => _Name; private set
+            {
+                if (value == "") throw new ArgumentException("Devi inserire il nome del player.");
+                _Name = NameCut(_NonAlphaNum.Replace(value, ""));
+            }
+        }
 
         /// <summary>
         /// Personalizzazioni del giocatore.

@@ -20,7 +20,15 @@ namespace UNOCardGame
     [SupportedOSPlatform("windows")]
     class Server
     {
+        /// <summary>
+        /// ID dell'admin. Sempre 0
+        /// </summary>
         public const int ADMIN_ID = 0;
+
+        /// <summary>
+        /// Numero massimo di player che possono unirsi al Server.
+        /// </summary>
+        public const int MAX_PLAYERS = 16;
 
         /// <summary>
         /// Timeout della connessione.
@@ -303,7 +311,7 @@ namespace UNOCardGame
             const int timeOut = 1000;
 
             // Chiude il server solo se è stato inizializzato prima
-            if (ServerSocket != null)
+            if (ServerSocket != null && ListenerCancellation != null)
             {
                 var endTask = new Task(async () => await SendToClients(new ConnectionEnd(true, "Il server è stato chiuso.")));
                 endTask.Start();
@@ -313,17 +321,17 @@ namespace UNOCardGame
                 while (IsBroadcasterRunning) ;
 
                 ListenerCancellation.Cancel();
-                Log.Info("Aspettando chiusura del listener...");
+                Log.Info("Aspettando la chiusura del listener...");
                 if (!ListenerHandler.IsCompleted)
                     ListenerHandler.Wait(timeOut);
 
                 BroadcasterCancellation.Cancel();
-                Log.Info("Aspettando chiusura del broadcaster...");
+                Log.Info("Aspettando la chiusura del broadcaster...");
                 if (!BroadcasterHandler.IsCompleted)
                     BroadcasterHandler.Wait(timeOut);
 
                 GameMasterCancellation.Cancel();
-                Log.Info("Aspettando chiusura del gamemaster...");
+                Log.Info("Aspettando la chiusura del gamemaster...");
                 if (!GameMasterHandler.IsCompleted)
                     GameMasterHandler.Wait(timeOut);
 
@@ -412,14 +420,14 @@ namespace UNOCardGame
             {
                 // Cerca di trovare il giocatore online dopo il giocatore di questo turno, andando da destra a sinistra
                 int indexNext = 0;
-                uint i = 1;
+                int i = 1;
                 while (true)
                 {
-                    if (prevId - i < 0)
+                    if ((int)prevId - i < 0)
                     { indexNext = playersAvailable.Count - 1; break; }
 
                     // Indice dell'utente del prossimo turno
-                    indexNext = playersAvailable.FindIndex(0, playersAvailable.Count, (prevId - i).Equals);
+                    indexNext = playersAvailable.FindIndex(0, playersAvailable.Count, ((uint)(prevId - i)).Equals);
 
                     // Se l'ID non esiste riprova con l'ID dopo
                     if (indexNext == -1)
@@ -479,6 +487,17 @@ namespace UNOCardGame
                 await SendToClients(new ChatMessage($"{name} ha vinto!"));
         }
 
+        private async Task<Dictionary<int, string>> GetWinningPlayers()
+        {
+            Dictionary<int, string> won = new();
+            await PlayersLock.WaitAsync();
+            foreach (var player in Players)
+                if (player.Value.Player.Won is int win)
+                    won.Add(win, player.Value.Player.Name);
+            PlayersLock.Release();
+            return won;
+        }
+
         /// <summary>
         /// Gestisce il gioco.
         /// </summary>
@@ -486,9 +505,15 @@ namespace UNOCardGame
         private async Task GameMaster(CancellationToken canc)
         {
             // Aspetta che il gioco venga fatto partire
-            while (!HasStarted)
-                await Task.Delay(1);
-
+            try
+            {
+                while (!HasStarted)
+                    await Task.Delay(1, canc);
+            }
+            catch (OperationCanceledException)
+            {
+                return;
+            }
             // Stato iniziale della partita
 
             // Carta iniziale sul tavolo
@@ -513,7 +538,7 @@ namespace UNOCardGame
             bool skipNext = false;
 
             // Dice se il giocatore deve pescare le carte
-            bool draw = false;
+            //bool draw = false;
 
             // Se o no il giocatore corrente ha detto "UNO!"
             bool saidUno = false;
@@ -528,18 +553,10 @@ namespace UNOCardGame
             {
                 while (true)
                 {
-                    if (nextTurn || skipNext || draw)
+                    if (nextTurn || skipNext)
                     {
                         // Imposta il turno al prossimo player
                         playerTurnId = await NextPlayer(playerTurnId, isLeftToright);
-
-                        // Fa pescare le carte se deve pescarle
-                        if (draw)
-                        {
-                            await AddCardsToPlayer(addCards, playerTurnId);
-                            addCards = 0;
-                            draw = false;
-                        }
 
                         // Salta questo player e passa al prossimo
                         if (skipNext)
@@ -559,20 +576,27 @@ namespace UNOCardGame
                         {
                             if (playerId == playerTurnId)
                             {
-                                var cardsUpdate = (ActionUpdate)packet.Data;
-                                if (cardsUpdate.CardID is uint cardId)
+                                var actionUpdate = (ActionUpdate)packet.Data;
+                                if (actionUpdate.CardID is uint cardId)
                                 {
+                                    // Se il player precedente ha dato un +4 il player deve o pescare o chiamare il bluff
                                     if (gavePlusFour != null)
                                     {
                                         await SendToClient(new GameMessage(MessageType.Info, MessageContent.MustDrawOrCallBluff), playerId);
                                         continue;
                                     }
+
                                     var (deck, name) = await GetPlayerDeckAndName(playerId);
                                     var card = deck.Get(cardId);
 
                                     // Se c'è stata una catena di +2 e il giocatore mette un'altra carta il giocatore è forzato a pescare
                                     if (tableCard.NormalType == Normals.PlusTwo && card.NormalType != Normals.PlusTwo)
-                                        draw = true;
+                                        if (addCards > 0)
+                                        {
+                                            await AddCardsToPlayer(addCards, playerId);
+                                            await SendToClients(new ChatMessage($"A {name} sono state date {addCards} carte!"));
+                                            addCards = 0;
+                                        }
                                     if (tableCard.IsCompatible(card))
                                     {
                                         // Gestisce le carte che hanno un'azione
@@ -585,8 +609,15 @@ namespace UNOCardGame
                                             else if (normalType == Normals.PlusTwo)
                                                 addCards += 2;
                                         }
-                                        else if (card.SpecialType is Specials specialType && specialType == Specials.PlusFour)
-                                            gavePlusFour = (playerId, tableCard);
+                                        else if (card.SpecialType is Specials specialType && actionUpdate.CardColor is Colors chosenColor)
+                                        {
+                                            // Imposta il colore scelto dall'utente
+                                            card.Color = chosenColor;
+
+                                            // Salva il nome e la carta corrente di chi ha lanciato il +4
+                                            if (specialType == Specials.PlusFour)
+                                                gavePlusFour = (playerId, tableCard);
+                                        }
 
                                         // Imposta la carta sul tavolo
                                         tableCard = card;
@@ -604,9 +635,8 @@ namespace UNOCardGame
                                             }
                                             else
                                             {
+                                                await AddCardsToPlayer(2, playerId);
                                                 await SendToClients(new ChatMessage($"{name} non ha detto UNO!"));
-                                                draw = true;
-                                                addCards += 2;
                                             }
                                         }
                                         await SetPlayerDeck(playerId, deck);
@@ -618,18 +648,20 @@ namespace UNOCardGame
                                     }
                                     else await SendToClient(new GameMessage(MessageType.Error, MessageContent.InvalidCard), playerId);
                                 }
-                                else if (cardsUpdate.Type is ActionType actionType)
+                                else if (actionUpdate.Type is ActionType actionType)
                                 {
                                     switch (actionType)
                                     {
                                         case ActionType.Draw:
                                             if (addCards == 0) addCards = 1;
-                                            draw = true;
                                             if (gavePlusFour != null)
                                             {
                                                 addCards = 4;
                                                 gavePlusFour = null;
                                             }
+                                            await AddCardsToPlayer(addCards, playerId);
+                                            addCards = 0;
+                                            nextTurn = true;
                                             break;
                                         case ActionType.CallBluff:
                                             if (gavePlusFour is (uint playerWhoGavePlusFour, Card prevCardTable))
@@ -659,7 +691,7 @@ namespace UNOCardGame
                                             break;
                                     }
                                 }
-                                else Log.Warn($"ActionUpdate mandato dal client non valido: {cardsUpdate.Serialize()}");
+                                else Log.Warn($"ActionUpdate mandato dal client non valido: {actionUpdate.Serialize()}");
                             }
                             else await SendToClient(new GameMessage(MessageType.Error, MessageContent.NotYourTurn), playerId);
                             continue;
@@ -671,9 +703,14 @@ namespace UNOCardGame
             catch (OperationCanceledException)
             {
                 Log.Info("Chiusura GameMaster...");
+                await SendToClients(new GameEnd(await GetWinningPlayers()));
                 await SendToClients(new ChatMessage("Il gioco è terminato!"));
                 HasStarted = false;
             }
+
+            GameMasterCancellation = new();
+            GameMasterHandler = new Task(async () => await GameMaster(GameMasterCancellation.Token));
+            GameMasterHandler.Start();
         }
 
         private async Task SendToGameMaster<T>(T packet, uint id) where T : Serialization<T>
@@ -805,6 +842,9 @@ namespace UNOCardGame
                                 }
                             }
                             continue;
+                        case PacketType.GameEnd:
+                            await BroadcastAll((GameEnd)packet.Data);
+                            break;
                         case PacketType.ChatMessage:
                             {
                                 if (packet.PlayerId is uint sendTo)
@@ -925,7 +965,7 @@ namespace UNOCardGame
             string[] args = msg.ToLower().Split(' ');
             if (args[0] == "uno!")
             {
-                await SendToGameMaster(new ActionUpdate(null, ActionType.SaidUno), id);
+                await SendToGameMaster(new ActionUpdate(null, null, ActionType.SaidUno), id);
                 return true;
             }
             // I comandi sono riservati all'admin
@@ -947,6 +987,11 @@ namespace UNOCardGame
                         else await SendToClients(new ChatMessage("Il gioco ha bisogno di due o più giocatori"));
                     }
                     else await SendToClient(new ChatMessage("Il gioco è già partito."), id);
+                    return false;
+                case ".stop":
+                    if (HasStarted)
+                        GameMasterCancellation.Cancel();
+                    else await SendToClient(new ChatMessage("Il gioco non è ancora partito."), id);
                     return false;
                 case ".kick":
                     if (args.Length >= 2)
@@ -1184,6 +1229,18 @@ namespace UNOCardGame
                 switch (joinRequest.Type)
                 {
                     case JoinType.Join:
+                        if (await GetPlayersNumTot() >= MAX_PLAYERS)
+                        {
+                            var status = new JoinStatus($"Ci sono troppi player nel server. Numero massimo: {MAX_PLAYERS}");
+                            await Packet.Send(client, status);
+                            goto close;
+                        }
+                        if (await GetId(joinRequest.NewPlayer.Name) != null)
+                        {
+                            var status = new JoinStatus($"Il nome {joinRequest.NewPlayer.Name} è già stato preso");
+                            await Packet.Send(client, status);
+                            goto close;
+                        }
                         if (!HasStarted)
                         {
                             // Nuovo ID del player

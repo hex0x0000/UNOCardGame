@@ -51,7 +51,8 @@ namespace UNOCardGame
         ConnectionEnd,
         TurnUpdate,
         ActionUpdate,
-        GameMessage
+        GameMessage,
+        GameEnd
     }
 
     /// <summary>
@@ -215,7 +216,6 @@ namespace UNOCardGame
             {
                 byte[] content = new byte[await ReceiveContentLen(socket)];
                 await socket.ReceiveAsync(content);
-                Debug.WriteLine($"Content: {Encoding.UTF8.GetString(content)}");
                 return Serialization<T>.Decode(content);
             }
             catch (ArgumentNullException e)

@@ -28,15 +28,21 @@ namespace UNOCardGame.Packets
         public uint? CardID { get; }
 
         /// <summary>
+        /// Specifica il colore della carta se è una carta speciale
+        /// </summary>
+        [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+        public Colors? CardColor { get; }
+
+        /// <summary>
         /// Tipo di azione del giocatore
         /// </summary>
         [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
         public ActionType? Type { get; }
 
         [JsonConstructor]
-        public ActionUpdate(uint? cardId, ActionType? type)
+        public ActionUpdate(uint? cardId, Colors? cardColor, ActionType? type)
         {
-            CardID = cardId; Type = type;
+            CardID = cardId; CardColor = cardColor; Type = type;
         }
     }
 }

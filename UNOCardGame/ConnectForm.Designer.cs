@@ -133,7 +133,7 @@
             // 
             AutoScaleDimensions = new System.Drawing.SizeF(7F, 15F);
             AutoScaleMode = System.Windows.Forms.AutoScaleMode.Font;
-            ClientSize = new System.Drawing.Size(489, 323);
+            ClientSize = new System.Drawing.Size(489, 297);
             Controls.Add(reconnect);
             Controls.Add(host);
             Controls.Add(connect);
@@ -144,7 +144,9 @@
             Controls.Add(addressLabel);
             Controls.Add(nickLabel);
             Controls.Add(portLabel);
+            FormBorderStyle = System.Windows.Forms.FormBorderStyle.FixedDialog;
             Name = "ConnectForm";
+            StartPosition = System.Windows.Forms.FormStartPosition.CenterScreen;
             Text = "Connessione";
             ResumeLayout(false);
             PerformLayout();

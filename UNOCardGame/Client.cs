@@ -83,7 +83,7 @@ namespace UNOCardGame
         /// <summary>
         /// Funzione che aggiorna i player nella UI.
         /// </summary>
-        public IProgress<List<Player>> UpdatePlayers { get; set; } = null;
+        public IProgress<Dictionary<uint, Player>> UpdatePlayers { get; set; } = null;
 
         /// <summary>
         /// Funzione che chiude il gioco.
@@ -96,6 +96,11 @@ namespace UNOCardGame
         /// Aggiorna il turno
         /// </summary>
         public IProgress<TurnUpdate> TurnUpdate { get; set; } = null;
+
+        /// <summary>
+        /// Resetta il gioco e mostra la classifica
+        /// </summary>
+        public IProgress<GameEnd> ResetGame { get; set; } = null;
 
         /// <summary>
         /// Mostra un messaggio del gioco mandato dal server
@@ -377,6 +382,12 @@ namespace UNOCardGame
                                 ForceClose.Report((packet.Message, packet.Final));
                                 return;
                             }
+                        case PacketType.GameEnd:
+                            {
+                                var packet = await Packet.Receive<GameEnd>(ServerSocket);
+                                ResetGame.Report(packet);
+                            }
+                            continue;
                         case PacketType.ChatMessage:
                             {
                                 var packet = await Packet.Receive<ChatMessage>(ServerSocket);
@@ -442,7 +453,7 @@ namespace UNOCardGame
                                     if (players.TryGetValue(playerId, out var player))
                                         player.IsOnline = isOnline;
 
-                                UpdatePlayers.Report(players.Values.ToList());
+                                UpdatePlayers.Report(players);
                             }
                             continue;
                         case PacketType.TurnUpdate:
