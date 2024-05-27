@@ -8,6 +8,10 @@ using System.Text.Json;
 using System.Text.Json.Serialization;
 using System.Data.SqlTypes;
 using System.Runtime.Versioning;
+using System.Resources;
+using System.Drawing;
+using System.Globalization;
+using System.Diagnostics;
 
 namespace UNOCardGame
 {
@@ -30,7 +34,7 @@ namespace UNOCardGame
         public Deck()
         {
             _IdCounter = 0;
-            Cards = new();
+            Cards = [];
             Add(InitNum);
         }
 
@@ -229,7 +233,7 @@ namespace UNOCardGame
         /// <summary>
         /// Generatore di numeri casuali.
         /// </summary>
-        private static Random _Random = new Random();
+        private static readonly Random _Random = new();
 
         /// <summary>
         /// Numero di elementi nell'enum dei colori.
@@ -296,11 +300,18 @@ namespace UNOCardGame
         [SupportedOSPlatform("windows")]
         public Button GetAsButton(Func<Card, int> fn)
         {
-            // TODO: Aggiungere immagine delle carte
-            Button btn = new Button();
-            btn.Text = ToString();
-            btn.Size = new System.Drawing.Size(150, 250);
+            Button btn = new();
+            btn.Size = new Size(150, 250);
             btn.Click += (args, events) => fn(this);
+            try
+            {
+                btn.Image = (Image)Properties.Resources.ResourceManager.GetObject(ToString());
+            }
+            catch (Exception ex)
+            {
+                btn.Text = ToString();
+                Debug.WriteLine($"Impossibile caricare l'immagine di {this}: {ex}");
+            }
             return btn;
         }
 
@@ -407,7 +418,7 @@ namespace UNOCardGame
                 case Type.Special:
                     return SpecialType.ToString();
                 default:
-                    return "";
+                    return "None";
             }
         }
     }

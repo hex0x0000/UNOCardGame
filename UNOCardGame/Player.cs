@@ -47,7 +47,7 @@ namespace UNOCardGame
         [JsonConstructor]
         public PlayerColor(byte r, byte g, byte b, byte a) { R = r; G = g; B = b; A = a; }
 
-        public Color ToColor() => Color.FromArgb(R, G, B, A);
+        public Color ToColor() => Color.FromArgb(A, R, G, B);
 
         public object Clone() => new PlayerColor(R, G, B, A);
 
@@ -65,45 +65,23 @@ namespace UNOCardGame
         /// Colori possibili per il background dei giocatori.
         /// </summary>
         [JsonIgnore]
-        public static readonly List<PlayerColor> BG_COLORS = new() { new(Color.White), new(Color.Beige), new(Color.DimGray) };
+        public static readonly List<PlayerColor> BG_COLORS = [new(Color.White), new(Color.Beige), new(Color.DimGray)];
 
         /// <summary>
         /// Colori possibili per l'username dei giocatori.
         /// </summary>
         [JsonIgnore]
-        public static readonly List<PlayerColor> USERNAME_COLORS = new() { new(Color.Black), new(Color.Chocolate), new(Color.DarkRed) };
-
-        private PlayerColor _UsernameColor;
+        public static readonly List<PlayerColor> USERNAME_COLORS = [new(Color.Black), new(Color.Chocolate), new(Color.DarkRed)];
 
         /// <summary>
         /// Colore dell'username.
         /// </summary>
-        public PlayerColor UsernameColor
-        {
-            get => _UsernameColor;
-            private set
-            {
-                if (!USERNAME_COLORS.Contains(value))
-                    throw new ArgumentException("Value must be contained within its possible values specified in USERNAME_COLORS", nameof(UsernameColor));
-                _UsernameColor = value;
-            }
-        }
-
-        private PlayerColor _BackgroundColor;
-
+        public PlayerColor UsernameColor { get; set; }
+    
         /// <summary>
         /// Colore del background dell'utente.
         /// </summary>
-        public PlayerColor BackgroundColor
-        {
-            get => _BackgroundColor;
-            private set
-            {
-                if (!BG_COLORS.Contains(value))
-                    throw new ArgumentException("Value must be contained within its possible values specified in BG_COLORS", nameof(BackgroundColor));
-                _BackgroundColor = value;
-            }
-        }
+        public PlayerColor BackgroundColor { get; set; }
 
         /// <summary>
         /// Inizializza una nuova personalizzazione
@@ -160,7 +138,7 @@ namespace UNOCardGame
         /// <summary>
         /// Taglia il nome del player per farlo stare in NAME_MAX_CHARS caratteri.
         /// </summary>
-        private static string NameCut(string value) => value.Length <= NAME_MAX_CHARS ? value : value.Substring(0, NAME_MAX_CHARS);
+        private static string NameCut(string value) => value.Length <= NAME_MAX_CHARS ? value : value[..NAME_MAX_CHARS];
 
         /// <summary>
         /// Lettere non alfanumeriche
@@ -191,6 +169,12 @@ namespace UNOCardGame
         {
             Name = name;
             Personalizations = new Personalization();
+        }
+
+        public Player(string name, Personalization personalizations)
+        {
+            Name = name;
+            Personalizations = personalizations;
         }
 
         /// <summary>

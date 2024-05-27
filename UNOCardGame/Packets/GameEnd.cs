@@ -18,7 +18,7 @@ namespace UNOCardGame.Packets
         /// <summary>
         /// Lista dei vincitori. Numero nella classifica e nome
         /// </summary>
-        public Dictionary<int, string> Winners { get; } = new();
+        public Dictionary<int, string> Winners { get; } = [];
 
         [JsonConstructor]
         public GameEnd(Dictionary<int, string> winners) => Winners = winners;

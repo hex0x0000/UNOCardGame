@@ -6,6 +6,7 @@ using System.Drawing;
 using System.Linq;
 using System.Net;
 using System.Numerics;
+using System.Reflection.Metadata.Ecma335;
 using System.Runtime.Versioning;
 using System.Text;
 using System.Threading;
@@ -26,7 +27,7 @@ namespace UNOCardGame
         /// <summary>
         /// Il server di questo gioco (solo se si sta hostando la partita)
         /// </summary>
-        private Server Server = null;
+        private readonly Server Server = null;
 
         /// <summary>
         /// Se la chiusura è stata forzata, specifica se successivamente è possibile riunirsi o no
@@ -41,9 +42,12 @@ namespace UNOCardGame
         /// <summary>
         /// Tiene conto del numero di carte di ogni player
         /// </summary>
-        Dictionary<uint, int> playerCardsNum = new();
+        private Dictionary<uint, int> playerCardsNum = [];
 
-        Dictionary<uint, Player> gamePlayers = new();
+        /// <summary>
+        /// Giocatori nel gioco
+        /// </summary>
+        private Dictionary<uint, Player> gamePlayers = [];
 
         /// <summary>
         /// Font normale della chat
@@ -157,6 +161,16 @@ namespace UNOCardGame
         /// <param name="_end"></param>
         private void ResetGame(GameEnd _end)
         {
+            playerCardsNum = [];
+            try
+            {
+                tableCard.Image = (Image)Properties.Resources.ResourceManager.GetObject("None");
+                colorPic.Hide();
+            }
+            catch (Exception)
+            {
+                tableCard.Text = "None";
+            }
             Label infoLabel = new();
             infoLabel.AutoSize = true;
             infoLabel.Font = new Font(chat.Font.FontFamily, 14f, FontStyle.Bold);
@@ -168,6 +182,7 @@ namespace UNOCardGame
             cards.Controls.Add(infoLabel);
             if (_end is GameEnd end)
                 MessageBox.Show(end.ToString(), "Partita terminata. Classifica finale:");
+            ShowPlayers();
         }
 
         private void Interface_Load(object sender, EventArgs e)
@@ -194,15 +209,14 @@ namespace UNOCardGame
             {
                 if (Client.Start(hostAccessCode))
                 {
-                    ServiceMessage($"Connessione al server ({((Client.ServerDNS != null) ? Client.ServerDNS : Client.ServerIP)}:{Client.ServerPort}) riuscita.");
+                    ServiceMessage($"Connessione al server ({(Client.ServerDNS ?? Client.ServerIP)}:{Client.ServerPort}) riuscita.");
                     Enabled = true;
                 }
             }
             catch (Exception ex)
             {
                 MessageBox.Show($"Impossibile far partire il client: {ex.Message}");
-                if (Server != null)
-                    Server.Stop();
+                Server?.Stop();
                 Abandon = false;
                 Close();
             }
@@ -239,9 +253,24 @@ namespace UNOCardGame
 
         private void TurnUpdate(TurnUpdate turn)
         {
-            if (turn.TableCard is Card _tableCard && turn.PlayerId is uint _playerTurnId && turn.PlayersCardsNum is Dictionary<uint, int> _playerCardsNum)
+            if (turn.IsLeftToRight is bool isLeftToRight && turn.TableCard is Card _tableCard && turn.PlayerId is uint _playerTurnId && turn.PlayersCardsNum is Dictionary<uint, int> _playerCardsNum)
             {
-                tableCard.Text = _tableCard.ToString();
+                if (isLeftToRight)
+                    turnDirection.Text = "→";
+                else
+                    turnDirection.Text = "←";
+                try
+                {
+                    tableCard.Image = (Image)Properties.Resources.ResourceManager.GetObject(_tableCard.ToString());
+                    colorPic.Show();
+                    colorPic.Image = (Image)Properties.Resources.ResourceManager.GetObject(_tableCard.Color.ToString());
+                }
+                catch (Exception)
+                {
+                    tableCard.Text = _tableCard.ToString();
+                    tableCard.Image = null;
+                    colorPic.Image = null;
+                }
                 playerTurnId = _playerTurnId;
                 playerCardsNum = _playerCardsNum;
                 ShowPlayers();
@@ -348,6 +377,7 @@ namespace UNOCardGame
         /// <param name="e"></param>
         protected override void OnFormClosing(FormClosingEventArgs e)
         {
+            cards.Controls.Clear();
             Enabled = false;
             if (Abandon is bool abandon)
                 Client.Close(abandon);
@@ -355,7 +385,7 @@ namespace UNOCardGame
                 if (MessageBox.Show("Se clicchi 'No' potrai riunirti successivamente", "Vuoi chiudere definitivamente la connessione?", MessageBoxButtons.YesNo, MessageBoxIcon.Question) == DialogResult.Yes)
                     Client.Close(true);
                 else Client.Close(false);
-            else if (MessageBox.Show("Tutti i giocatore verranno disconnessi.", "Vuoi chiudere definitivamente il server?", MessageBoxButtons.YesNo, MessageBoxIcon.Question) == DialogResult.Yes)
+            else if (MessageBox.Show("Tutti i giocatori verranno disconnessi.", "Vuoi chiudere definitivamente il server?", MessageBoxButtons.YesNo, MessageBoxIcon.Question) == DialogResult.Yes)
                 Client.Close(true);
             else return;
             if (Server is Server server)

@@ -20,10 +20,17 @@ namespace UNOCardGame
         private MainGame Game;
         private long? PrevAccessCode = null;
         private Player PrevUser = null;
+        private readonly Personalization personalizations = null;
+        private readonly ColorDialog colorDialog = null;
 
         public ConnectForm()
         {
             InitializeComponent();
+            personalizations = new();
+            colorDialog = new()
+            {
+                FullOpen = false
+            };
         }
 
         /// <summary>
@@ -68,10 +75,10 @@ namespace UNOCardGame
                         Game = new MainGame(_player, address.Text, ushort.Parse(port.Text), __isDNS, _accessCode);
                     else if (isDNS is bool _isDNS)
                         // Inizia il gioco come client
-                        Game = new MainGame(new Player(nickname.Text), address.Text, ushort.Parse(port.Text), _isDNS);
+                        Game = new MainGame(new Player(nickname.Text, personalizations), address.Text, ushort.Parse(port.Text), _isDNS);
                     else
                         // Inizia il gioco come server (host)
-                        Game = new MainGame(new Player(nickname.Text), address.Text, ushort.Parse(port.Text));
+                        Game = new MainGame(new Player(nickname.Text, personalizations), address.Text, ushort.Parse(port.Text));
                     Game.FormClosed += (sender, e) =>
                     {
                         PrevUser = Game.Client.Player;
@@ -96,6 +103,40 @@ namespace UNOCardGame
             }
             if (Started)
                 Hide();
+        }
+
+        private void selectName_Click(object sender, EventArgs e)
+        {
+            if (colorDialog.ShowDialog() == DialogResult.OK)
+            {
+                personalizations.UsernameColor = new PlayerColor(colorDialog.Color);
+                ShowPlayerPreview();
+            }
+        }
+
+        private void selectBg_Click(object sender, EventArgs e)
+        {
+            if (colorDialog.ShowDialog() == DialogResult.OK)
+            {
+                personalizations.BackgroundColor = new PlayerColor(colorDialog.Color);
+                ShowPlayerPreview();
+            }
+        }
+
+        private void ShowPlayerPreview()
+        {
+            if (nickname.Text != "")
+            {
+                labelPanel.Controls.Clear();
+                var player = new Player(nickname.Text, personalizations);
+                player.IsOnline = true;
+                labelPanel.Controls.Add(player.GetAsLabel(false, 0));
+            }
+        }
+
+        private void nickname_TextChanged(object sender, EventArgs e)
+        {
+            ShowPlayerPreview();
         }
     }
 }

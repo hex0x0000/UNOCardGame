@@ -38,7 +38,7 @@ namespace UNOCardGame
         /// <summary>
         /// Generatore di numeri casuali.
         /// </summary>
-        private static Random _Random = new Random();
+        private static readonly Random _Random = new();
 
         private int _HasStarted = 0;
 
@@ -101,23 +101,23 @@ namespace UNOCardGame
         /// Tutti i player del gioco. Questo dictionary contiene tutti i dati necessari per comunicare con i client.
         /// E' necessario accedervi con il mutex bloccato, dato che questo oggetto non è thread-safe.
         /// </summary>
-        private Dictionary<uint, PlayerData> Players = new();
+        private readonly Dictionary<uint, PlayerData> Players = [];
 
         /// <summary>
         /// Mutex che coordina l'accesso a Players
         /// </summary>
-        private static SemaphoreSlim PlayersLock = new(1, 1);
+        private static readonly SemaphoreSlim PlayersLock = new(1, 1);
 
         /// <summary>
         /// I socket dei giocatori.
         /// Risiedono su un hashmap diverso per evitare dei bottleneck durante la spedizione dei pacchetti.
         /// </summary>
-        private Dictionary<uint, Socket> Clients = new();
+        private readonly Dictionary<uint, Socket> Clients = [];
 
         /// <summary>
         /// Mutex che coordina l'accesso ai client.
         /// </summary>
-        private static SemaphoreSlim ClientsLock = new(1, 1);
+        private static readonly SemaphoreSlim ClientsLock = new(1, 1);
 
         /// <summary>
         /// Socket del server. Usato per accettare le nuove connessioni.
@@ -127,12 +127,21 @@ namespace UNOCardGame
         /// <summary>
         /// Logger del server
         /// </summary>
-        private Logger Log = new("SERVER");
+        private readonly Logger Log = new("SERVER");
 
+        /// <summary>
+        /// Elimina il listener
+        /// </summary>
         private CancellationTokenSource ListenerCancellation;
 
+        /// <summary>
+        /// Elimina il broadcaster
+        /// </summary>
         private CancellationTokenSource BroadcasterCancellation;
 
+        /// <summary>
+        /// Elimina il gamemaster
+        /// </summary>
         private CancellationTokenSource GameMasterCancellation;
 
         private volatile int _IsBroadcasterRunning = 0;
@@ -265,6 +274,7 @@ namespace UNOCardGame
             foreach (var player in Players)
                 player.Value.ClientHandler.Dispose();
             PlayersLock.Dispose();
+            ClientsLock.Dispose();
         }
 
         /// <summary>
@@ -442,7 +452,7 @@ namespace UNOCardGame
 
         private async Task<Dictionary<uint, int>> GetPlayersCardsNum()
         {
-            Dictionary<uint, int> playersCardsNum = new();
+            Dictionary<uint, int> playersCardsNum = [];
             await PlayersLock.WaitAsync();
             foreach (var player in Players)
                 playersCardsNum.Add(player.Key, player.Value.Deck.Cards.Count);
@@ -452,7 +462,7 @@ namespace UNOCardGame
 
         private async Task SendEveryoneCards()
         {
-            Dictionary<uint, Deck> decks = new();
+            Dictionary<uint, Deck> decks = [];
             await PlayersLock.WaitAsync();
             foreach (var player in Players)
                 decks.Add(player.Key, player.Value.Deck);
@@ -489,7 +499,7 @@ namespace UNOCardGame
 
         private async Task<Dictionary<int, string>> GetWinningPlayers()
         {
-            Dictionary<int, string> won = new();
+            Dictionary<int, string> won = [];
             await PlayersLock.WaitAsync();
             foreach (var player in Players)
                 if (player.Value.Player.Won is int win)
@@ -934,7 +944,7 @@ namespace UNOCardGame
         /// <returns></returns>
         private async Task<int> GetPlayersNumTot()
         {
-            int n = 0;
+            int n;
             await PlayersLock.WaitAsync();
             n = Players.Count;
             PlayersLock.Release();
@@ -1377,7 +1387,7 @@ namespace UNOCardGame
         private void InitSocket()
         {
             // Creazione socket del server
-            IPEndPoint ipEndpoint = new IPEndPoint(IPAddress.Parse(Address), Port);
+            IPEndPoint ipEndpoint = new(IPAddress.Parse(Address), Port);
             ServerSocket = new Socket(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp);
 
             // Binding e listening all'IP e alla porta specificati

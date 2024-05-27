@@ -39,8 +39,10 @@ namespace UNOCardGame
             msgWriteBox = new System.Windows.Forms.TextBox();
             msgSendButton = new System.Windows.Forms.Button();
             chat = new System.Windows.Forms.RichTextBox();
-            tableCard = new System.Windows.Forms.Label();
             cards = new System.Windows.Forms.FlowLayoutPanel();
+            tableCard = new System.Windows.Forms.Button();
+            colorPic = new System.Windows.Forms.PictureBox();
+            ((System.ComponentModel.ISupportInitialize)colorPic).BeginInit();
             SuspendLayout();
             // 
             // drawButton
@@ -49,7 +51,7 @@ namespace UNOCardGame
             drawButton.Location = new System.Drawing.Point(479, 246);
             drawButton.Margin = new System.Windows.Forms.Padding(4, 3, 4, 3);
             drawButton.Name = "drawButton";
-            drawButton.Size = new System.Drawing.Size(128, 66);
+            drawButton.Size = new System.Drawing.Size(116, 66);
             drawButton.TabIndex = 2;
             drawButton.Text = "Pesca";
             drawButton.UseVisualStyleBackColor = true;
@@ -59,7 +61,7 @@ namespace UNOCardGame
             // 
             colorLabel.AutoSize = true;
             colorLabel.Font = new System.Drawing.Font("Microsoft Sans Serif", 16F);
-            colorLabel.Location = new System.Drawing.Point(519, 39);
+            colorLabel.Location = new System.Drawing.Point(774, 214);
             colorLabel.Margin = new System.Windows.Forms.Padding(4, 0, 4, 0);
             colorLabel.Name = "colorLabel";
             colorLabel.Size = new System.Drawing.Size(88, 26);
@@ -89,11 +91,11 @@ namespace UNOCardGame
             // turnDirection
             // 
             turnDirection.AutoSize = true;
-            turnDirection.Font = new System.Drawing.Font("Microsoft Sans Serif", 30.25F);
-            turnDirection.Location = new System.Drawing.Point(377, 9);
+            turnDirection.Font = new System.Drawing.Font("Microsoft Sans Serif", 21.75F, System.Drawing.FontStyle.Regular, System.Drawing.GraphicsUnit.Point, 0);
+            turnDirection.Location = new System.Drawing.Point(391, 8);
             turnDirection.Margin = new System.Windows.Forms.Padding(4, 0, 4, 0);
             turnDirection.Name = "turnDirection";
-            turnDirection.Size = new System.Drawing.Size(49, 47);
+            turnDirection.Size = new System.Drawing.Size(35, 33);
             turnDirection.TabIndex = 9;
             turnDirection.Text = "↞";
             // 
@@ -114,7 +116,7 @@ namespace UNOCardGame
             bluffButton.Location = new System.Drawing.Point(479, 174);
             bluffButton.Margin = new System.Windows.Forms.Padding(4, 3, 4, 3);
             bluffButton.Name = "bluffButton";
-            bluffButton.Size = new System.Drawing.Size(128, 66);
+            bluffButton.Size = new System.Drawing.Size(116, 66);
             bluffButton.TabIndex = 11;
             bluffButton.Text = "Bluff!";
             bluffButton.UseVisualStyleBackColor = true;
@@ -130,7 +132,7 @@ namespace UNOCardGame
             // 
             // msgSendButton
             // 
-            msgSendButton.Location = new System.Drawing.Point(1392, 430);
+            msgSendButton.Location = new System.Drawing.Point(1392, 432);
             msgSendButton.Name = "msgSendButton";
             msgSendButton.Size = new System.Drawing.Size(76, 24);
             msgSendButton.TabIndex = 14;
@@ -146,18 +148,9 @@ namespace UNOCardGame
             chat.Name = "chat";
             chat.ReadOnly = true;
             chat.ScrollBars = System.Windows.Forms.RichTextBoxScrollBars.ForcedVertical;
-            chat.Size = new System.Drawing.Size(568, 409);
+            chat.Size = new System.Drawing.Size(568, 414);
             chat.TabIndex = 15;
             chat.Text = "";
-            // 
-            // tableCard
-            // 
-            tableCard.AutoSize = true;
-            tableCard.Location = new System.Drawing.Point(693, 225);
-            tableCard.Name = "tableCard";
-            tableCard.Size = new System.Drawing.Size(62, 15);
-            tableCard.TabIndex = 16;
-            tableCard.Text = "Table Card";
             // 
             // cards
             // 
@@ -168,13 +161,31 @@ namespace UNOCardGame
             cards.Size = new System.Drawing.Size(1454, 345);
             cards.TabIndex = 17;
             // 
+            // tableCard
+            // 
+            tableCard.Location = new System.Drawing.Point(602, 119);
+            tableCard.Name = "tableCard";
+            tableCard.Size = new System.Drawing.Size(150, 250);
+            tableCard.TabIndex = 18;
+            tableCard.UseVisualStyleBackColor = true;
+            // 
+            // colorPic
+            // 
+            colorPic.Location = new System.Drawing.Point(789, 243);
+            colorPic.Name = "colorPic";
+            colorPic.Size = new System.Drawing.Size(50, 50);
+            colorPic.SizeMode = System.Windows.Forms.PictureBoxSizeMode.StretchImage;
+            colorPic.TabIndex = 19;
+            colorPic.TabStop = false;
+            // 
             // MainGame
             // 
             AutoScaleDimensions = new System.Drawing.SizeF(7F, 15F);
             AutoScaleMode = System.Windows.Forms.AutoScaleMode.Font;
             ClientSize = new System.Drawing.Size(1480, 846);
-            Controls.Add(cards);
+            Controls.Add(colorPic);
             Controls.Add(tableCard);
+            Controls.Add(cards);
             Controls.Add(chat);
             Controls.Add(msgSendButton);
             Controls.Add(msgWriteBox);
@@ -191,6 +202,7 @@ namespace UNOCardGame
             StartPosition = System.Windows.Forms.FormStartPosition.CenterScreen;
             Text = "UNO";
             Load += Interface_Load;
+            ((System.ComponentModel.ISupportInitialize)colorPic).EndInit();
             ResumeLayout(false);
             PerformLayout();
         }
@@ -206,8 +218,9 @@ namespace UNOCardGame
         private System.Windows.Forms.TextBox msgWriteBox;
         private System.Windows.Forms.Button msgSendButton;
         private System.Windows.Forms.RichTextBox chat;
-        private System.Windows.Forms.Label tableCard;
         private System.Windows.Forms.FlowLayoutPanel cards;
+        private System.Windows.Forms.Button tableCard;
+        private System.Windows.Forms.PictureBox colorPic;
     }
 }
 

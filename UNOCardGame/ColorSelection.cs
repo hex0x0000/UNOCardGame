@@ -19,7 +19,7 @@ namespace UNOCardGame
         public static Colors SelectColor()
         {
             var form = new ColorSelection();
-            form.Show();
+            form.ShowDialog();
             return form.Result;
         }
 

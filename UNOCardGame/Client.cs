@@ -117,7 +117,14 @@ namespace UNOCardGame
         /// </summary>
         private ChannelWriter<ChannelData> Writer;
 
+        /// <summary>
+        /// Arresta il listener
+        /// </summary>
         private CancellationTokenSource ListenerCancellation;
+        
+        /// <summary>
+        /// Arresta il sender
+        /// </summary>
         private CancellationTokenSource SenderCancellation;
 
         private volatile int _IsSenderRunning = 0;
