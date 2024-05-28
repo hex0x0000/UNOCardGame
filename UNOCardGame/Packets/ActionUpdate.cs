@@ -17,7 +17,8 @@ namespace UNOCardGame.Packets
     /// <summary>
     /// Manda al server l'azione del client
     /// </summary>
-    public class ActionUpdate : Serialization<ActionUpdate>
+    [method: JsonConstructor]
+    public class ActionUpdate(uint? cardId, Colors? cardColor, ActionType? type) : Serialization<ActionUpdate>
     {
         public override short PacketId => (short)PacketType.ActionUpdate;
 
@@ -25,24 +26,16 @@ namespace UNOCardGame.Packets
         /// Carta mandata dal client al server
         /// </summary>
         [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
-        public uint? CardID { get; }
-
+        public uint? CardID { get; } = cardId;
         /// <summary>
         /// Specifica il colore della carta se è una carta speciale
         /// </summary>
         [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
-        public Colors? CardColor { get; }
-
+        public Colors? CardColor { get; } = cardColor;
         /// <summary>
         /// Tipo di azione del giocatore
         /// </summary>
         [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
-        public ActionType? Type { get; }
-
-        [JsonConstructor]
-        public ActionUpdate(uint? cardId, Colors? cardColor, ActionType? type)
-        {
-            CardID = cardId; CardColor = cardColor; Type = type;
-        }
+        public ActionType? Type { get; } = type;
     }
 }

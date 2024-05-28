@@ -14,9 +14,9 @@ namespace UNOCardGame
     [SupportedOSPlatform("windows")]
     public partial class ColorSelection : Form
     {
-        private Colors Result;
+        private Colors? Result = null;
 
-        public static Colors SelectColor()
+        public static Colors? SelectColor()
         {
             var form = new ColorSelection();
             form.ShowDialog();

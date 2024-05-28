@@ -151,6 +151,7 @@ namespace UNOCardGame
             chat.Size = new System.Drawing.Size(568, 414);
             chat.TabIndex = 15;
             chat.Text = "";
+            chat.TextChanged += chat_TextChanged;
             // 
             // cards
             // 
