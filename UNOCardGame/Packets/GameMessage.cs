@@ -22,7 +22,8 @@ namespace UNOCardGame.Packets
     /// <summary>
     /// Messaggio del gioco mandato al giocatore
     /// </summary>
-    public class GameMessage : Serialization<GameMessage>
+    [method: JsonConstructor]
+    public class GameMessage(MessageType type, MessageContent content) : Serialization<GameMessage>
     {
         [JsonIgnore]
         public override short PacketId => (short)PacketType.GameMessage;
@@ -30,18 +31,11 @@ namespace UNOCardGame.Packets
         /// <summary>
         /// Dice se il messaggio è un errore o un'informazione
         /// </summary>
-        public MessageType Type { get; }
-
+        public MessageType Type { get; } = type;
         /// <summary>
         /// Contenuto del messaggio
         /// </summary>
-        public MessageContent Content { get; }
-
-        [JsonConstructor]
-        public GameMessage(MessageType type, MessageContent content)
-        {
-            Type = type; Content = content;
-        }
+        public MessageContent Content { get; } = content;
 
         public override string ToString()
         {

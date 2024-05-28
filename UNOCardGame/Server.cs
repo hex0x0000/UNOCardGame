@@ -18,7 +18,7 @@ using UNOCardGame.Packets;
 namespace UNOCardGame
 {
     [SupportedOSPlatform("windows")]
-    class Server
+    class Server(string address, ushort port)
     {
         /// <summary>
         /// ID dell'admin. Sempre 0
@@ -65,12 +65,12 @@ namespace UNOCardGame
         /// <summary>
         /// Indirizzo IP su cui ascolta il server.
         /// </summary>
-        public readonly string Address;
+        public readonly string Address = address;
 
         /// <summary>
         /// Porta su cui ascolta il server.
         /// </summary>
-        public readonly ushort Port;
+        public readonly ushort Port = port;
 
         /// <summary>
         /// Handler del thread che gestisce le nuove connessioni.
@@ -175,7 +175,6 @@ namespace UNOCardGame
             public PlayerData(uint id, Task clientHandler, Player player, CancellationTokenSource canc)
             {
                 GenAccessCode();
-                Deck = new Deck();
                 ClientHandler = clientHandler;
                 Player = new Player(id, true, player.Name, player.Personalizations, null);
                 Cancellation = canc;
@@ -188,7 +187,6 @@ namespace UNOCardGame
             public PlayerData(Player player)
             {
                 GenAccessCode();
-                Deck = new Deck();
                 Player = new Player(0, false, player.Name, player.Personalizations, null);
                 ClientHandler = null;
                 Cancellation = null;
@@ -231,7 +229,7 @@ namespace UNOCardGame
         /// <summary>
         /// Dati mandati tramite il Communicator
         /// </summary>
-        private struct ChannelData
+        private readonly struct ChannelData
         {
             public ChannelData(short packetId, object data)
             {
@@ -257,12 +255,6 @@ namespace UNOCardGame
             /// ID del player a cui mandare il pacchetto (opzionale).
             /// </summary>
             public readonly uint? PlayerId;
-        }
-
-        public Server(string address, ushort port)
-        {
-            Address = address;
-            Port = port;
         }
 
         ~Server()
@@ -315,6 +307,9 @@ namespace UNOCardGame
             return accessCode;
         }
 
+        /// <summary>
+        /// Interrompe il server
+        /// </summary>
         public void Stop()
         {
             // Tempo di timeout
@@ -370,6 +365,11 @@ namespace UNOCardGame
             }
         }
 
+        /// <summary>
+        /// Prende il nome del player e il suo deck partendo dall'id
+        /// </summary>
+        /// <param name="id">ID del player</param>
+        /// <returns></returns>
         private async Task<(Deck, string)> GetPlayerDeckAndName(uint id)
         {
             Deck deck = null;
@@ -384,6 +384,12 @@ namespace UNOCardGame
             return (deck, name);
         }
 
+        /// <summary>
+        /// Imposta il deck del player
+        /// </summary>
+        /// <param name="id"></param>
+        /// <param name="deck"></param>
+        /// <returns></returns>
         private async Task SetPlayerDeck(uint id, Deck deck)
         {
             await PlayersLock.WaitAsync();
@@ -392,6 +398,12 @@ namespace UNOCardGame
             PlayersLock.Release();
         }
 
+        /// <summary>
+        /// Ritorna l'ID dell'utente del prossimo turno
+        /// </summary>
+        /// <param name="prevId">ID dell'utente del turno prima</param>
+        /// <param name="isLeftToRight">Ordine del turno</param>
+        /// <returns></returns>
         private async Task<uint> NextPlayer(uint prevId, bool isLeftToRight)
         {
             uint nextId = 0;
@@ -450,6 +462,10 @@ namespace UNOCardGame
             return nextId;
         }
 
+        /// <summary>
+        /// Prende il numero di carte di tutti i player
+        /// </summary>
+        /// <returns></returns>
         private async Task<Dictionary<uint, int>> GetPlayersCardsNum()
         {
             Dictionary<uint, int> playersCardsNum = [];
@@ -460,17 +476,31 @@ namespace UNOCardGame
             return playersCardsNum;
         }
 
-        private async Task SendEveryoneCards()
+        /// <summary>
+        /// Resetta le info degli utenti allo stato iniziale del gioco
+        /// </summary>
+        /// <returns></returns>
+        private async Task ResetGame()
         {
             Dictionary<uint, Deck> decks = [];
             await PlayersLock.WaitAsync();
             foreach (var player in Players)
+            {
+                player.Value.Player.Won = null;
+                player.Value.Deck = new Deck();
                 decks.Add(player.Key, player.Value.Deck);
+            }
             PlayersLock.Release();
             foreach (var deck in decks)
                 await SendToClient(new TurnUpdate(deck.Value.Cards), deck.Key);
         }
 
+        /// <summary>
+        /// Aggiunge carte a un player
+        /// </summary>
+        /// <param name="addCards">Numero di carte da aggiungere</param>
+        /// <param name="playerId">ID del player</param>
+        /// <returns></returns>
         private async Task AddCardsToPlayer(uint addCards, uint playerId)
         {
             if (addCards == 0) addCards = 1;
@@ -483,6 +513,12 @@ namespace UNOCardGame
             }
         }
 
+        /// <summary>
+        /// Fa vincere un player
+        /// </summary>
+        /// <param name="id">ID del player</param>
+        /// <param name="wonCount">Conteggio in classifica</param>
+        /// <returns></returns>
         private async Task PlayerWon(uint id, int wonCount)
         {
             string name = null;
@@ -497,6 +533,10 @@ namespace UNOCardGame
                 await SendToClients(new ChatMessage($"{name} ha vinto!"));
         }
 
+        /// <summary>
+        /// Ritorna la lista con i giocatori che hanno vinto
+        /// </summary>
+        /// <returns></returns>
         private async Task<Dictionary<int, string>> GetWinningPlayers()
         {
             Dictionary<int, string> won = [];
@@ -547,16 +587,13 @@ namespace UNOCardGame
             // Dice se saltare il prossimo giocatore
             bool skipNext = false;
 
-            // Dice se il giocatore deve pescare le carte
-            //bool draw = false;
-
             // Se o no il giocatore corrente ha detto "UNO!"
             bool saidUno = false;
 
             // Indica quanti giocatori hanno vinto
             int wonCount = 0;
 
-            await SendEveryoneCards();
+            await ResetGame();
             await SendToClients(new ChatMessage("Partita avviata!"));
             // Manda carte ai client
             try
@@ -663,14 +700,38 @@ namespace UNOCardGame
                                     switch (actionType)
                                     {
                                         case ActionType.Draw:
-                                            if (addCards == 0) addCards = 1;
                                             if (gavePlusFour != null)
                                             {
-                                                addCards = 4;
                                                 gavePlusFour = null;
+                                                await AddCardsToPlayer(4, playerId);
                                             }
-                                            await AddCardsToPlayer(addCards, playerId);
-                                            addCards = 0;
+                                            else if (addCards == 0)
+                                            {
+                                                var card = Card.PickRandom();
+                                                if (tableCard.IsCompatible(card) && card.NormalType is Normals normalType)
+                                                {
+                                                    if (normalType == Normals.Reverse)
+                                                        isLeftToright = !isLeftToright;
+                                                    else if (normalType == Normals.Block)
+                                                        skipNext = true;
+                                                    else if (normalType == Normals.PlusTwo)
+                                                        addCards += 2;
+                                                    tableCard = card;
+                                                    await SendToClient(new ChatMessage("La carta pescata è stata messa nel mazzo."), playerId);
+                                                }
+                                                else
+                                                {
+                                                    var (deck, _) = await GetPlayerDeckAndName(playerId);
+                                                    deck.Add(card);
+                                                    await SetPlayerDeck(playerId, deck);
+                                                    await SendToClient(new TurnUpdate(deck.Cards), playerId);
+                                                }
+                                            }
+                                            else
+                                            {
+                                                await AddCardsToPlayer(addCards, playerId);
+                                                addCards = 0;
+                                            }
                                             nextTurn = true;
                                             break;
                                         case ActionType.CallBluff:
@@ -718,12 +779,20 @@ namespace UNOCardGame
                 HasStarted = false;
             }
 
+            // Riavvia un nuovo GameMaster
             GameMasterCancellation = new();
             GameMasterHandler = new Task(async () => await GameMaster(GameMasterCancellation.Token));
             GameMasterHandler.Start();
         }
 
-        private async Task SendToGameMaster<T>(T packet, uint id) where T : Serialization<T>
+        /// <summary>
+        /// Manda l'ActionUpdate al GameMaster
+        /// </summary>
+        /// <typeparam name="T"></typeparam>
+        /// <param name="packet"></param>
+        /// <param name="id"></param>
+        /// <returns></returns>
+        private async Task SendToGameMaster(ActionUpdate packet, uint id)
         {
             if (GameMasterCommunicator != null)
                 await GameMasterCommunicator.Writer.WriteAsync(new ChannelData(packet.PacketId, packet, id));
@@ -761,7 +830,7 @@ namespace UNOCardGame
         }
 
         /// <summary>
-        /// Manda un pacchetto a un client.
+        /// Manda un pacchetto a un client specifico.
         /// </summary>
         /// <typeparam name="T">Tipo serializzabile</typeparam>
         /// <param name="id">ID del player a cui mandare il pacchetto</param>
@@ -924,21 +993,6 @@ namespace UNOCardGame
         }
 
         /// <summary>
-        /// Ritorna il nome partendo dall'ID del player
-        /// </summary>
-        /// <param name="id"></param>
-        /// <returns></returns>
-        private async Task<string> GetName(uint id)
-        {
-            string name = null;
-            await PlayersLock.WaitAsync();
-            if (Players.TryGetValue(id, out var playerData))
-                name = playerData.Player.Name;
-            PlayersLock.Release();
-            return name;
-        }
-
-        /// <summary>
         /// Ritorna il numero di giocatori totali
         /// </summary>
         /// <returns></returns>
@@ -984,7 +1038,7 @@ namespace UNOCardGame
             switch (args[0])
             {
                 case ".help":
-                    await SendToClient(new ChatMessage($".help - Mostra questo messaggio{Environment.NewLine}.start - Avvia il gioco{Environment.NewLine}.kick - Disconnette un utente{Environment.NewLine}.remove - Rimuove un utente"), id);
+                    await SendToClient(new ChatMessage($".help - Mostra questo messaggio{Environment.NewLine}.start - Avvia il gioco{Environment.NewLine}.stop - Termina il gioco{Environment.NewLine}.kick - Disconnette un utente{Environment.NewLine}.remove - Rimuove un utente"), id);
                     return false;
                 case ".start":
                     if (!HasStarted)
@@ -1164,7 +1218,7 @@ namespace UNOCardGame
             }
             PlayersLock.Release();
 
-            await UpdatePlayers();
+            await UpdatePlayer(id, false);
         }
 
         /// <summary>
@@ -1206,6 +1260,12 @@ namespace UNOCardGame
             await SendToClients(playersUpdate);
         }
 
+        /// <summary>
+        /// Aggiorna i client dello status di un giocatore specifico
+        /// </summary>
+        /// <param name="id">ID del giocatore</param>
+        /// <param name="isOnline">Se è online o no</param>
+        /// <returns></returns>
         private async Task UpdatePlayer(uint id, bool isOnline) => await SendToClients(new PlayersUpdate(null, id, isOnline));
 
         /// <summary>
@@ -1239,12 +1299,14 @@ namespace UNOCardGame
                 switch (joinRequest.Type)
                 {
                     case JoinType.Join:
+                        // Se supera il numero massimo di player non accetta la connessione
                         if (await GetPlayersNumTot() >= MAX_PLAYERS)
                         {
                             var status = new JoinStatus($"Ci sono troppi player nel server. Numero massimo: {MAX_PLAYERS}");
                             await Packet.Send(client, status);
                             goto close;
                         }
+                        // Se il nome è già usato non accetta la connessione
                         if (await GetId(joinRequest.NewPlayer.Name) != null)
                         {
                             var status = new JoinStatus($"Il nome {joinRequest.NewPlayer.Name} è già stato preso");
@@ -1352,8 +1414,16 @@ namespace UNOCardGame
                             ClientsLock.Release();
 
                             // Manda la lista dei player al giocatore
-                            await UpdatePlayers();
-                            await SendToClients(new ChatMessage($"{name} si è riconnesso"));
+                            if (userId == ADMIN_ID)
+                            {
+                                await UpdatePlayers();
+                                await SendToClients(new ChatMessage($"Benvenuto nel gioco, {name}."));
+                            }
+                            else
+                            {
+                                await UpdatePlayer(userId, true);
+                                await SendToClients(new ChatMessage($"{name} si è riconnesso"));
+                            }
 
                             return;
                         }

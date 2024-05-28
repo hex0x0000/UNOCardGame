@@ -202,7 +202,7 @@ namespace UNOCardGame
                     Close();
                     return;
                 }
-                ServiceMessage("Avvio del server riuscito.");
+                ServiceMessage("Avvio del server riuscito. Scrivi '.help' per avere la lista dei comandi.");
             }
 
             try
@@ -244,10 +244,14 @@ namespace UNOCardGame
 
         private int OnCardButtonClick(Card card)
         {
-            Colors? color = null;
             if (card.Type == Type.Special)
-                color = ColorSelection.SelectColor();
-            Client.Send(new ActionUpdate(card.Id, color, null));
+            {
+                var _color = ColorSelection.SelectColor();
+                if (_color is Colors color)
+                    Client.Send(new ActionUpdate(card.Id, color, null));
+                else MessageBox.Show("Se vuoi mandare una carta speciale devi selezionare un colore.");
+            }
+            else Client.Send(new ActionUpdate(card.Id, null, null));
             return 0;
         }
 
@@ -335,6 +339,15 @@ namespace UNOCardGame
         }
 
         /// <summary>
+        /// Continua a scrollare la chat verso il basso quando ci sono nuovi messaggi
+        /// </summary>
+        private void chat_TextChanged(object sender, EventArgs e)
+        {
+            chat.SelectionStart = chat.Text.Length;
+            chat.ScrollToCaret();
+        }
+
+        /// <summary>
         /// Aggiorna la lista dei player
         /// </summary>
         /// <param name="_players"></param>
@@ -377,17 +390,32 @@ namespace UNOCardGame
         /// <param name="e"></param>
         protected override void OnFormClosing(FormClosingEventArgs e)
         {
-            cards.Controls.Clear();
             Enabled = false;
             if (Abandon is bool abandon)
                 Client.Close(abandon);
             else if (Server == null)
-                if (MessageBox.Show("Se clicchi 'No' potrai riunirti successivamente", "Vuoi chiudere definitivamente la connessione?", MessageBoxButtons.YesNo, MessageBoxIcon.Question) == DialogResult.Yes)
-                    Client.Close(true);
-                else Client.Close(false);
+            {
+                var choice = MessageBox.Show("Se clicchi 'No' potrai riunirti successivamente", "Vuoi chiudere definitivamente la connessione?", MessageBoxButtons.YesNoCancel, MessageBoxIcon.Question);
+                if (choice == DialogResult.Yes) Client.Close(true);
+                else if (choice == DialogResult.No) Client.Close(false);
+                else
+                {
+                    // Annulla la chiusura
+                    e.Cancel = true;
+                    Enabled = true;
+                    return;
+                }
+            }
             else if (MessageBox.Show("Tutti i giocatori verranno disconnessi.", "Vuoi chiudere definitivamente il server?", MessageBoxButtons.YesNo, MessageBoxIcon.Question) == DialogResult.Yes)
                 Client.Close(true);
-            else return;
+            else
+            {
+                // Annulla la chiusura
+                e.Cancel = true;
+                Enabled = true;
+                return;
+            }
+            cards.Controls.Clear();
             if (Server is Server server)
                 server.Stop();
             base.OnFormClosing(e);

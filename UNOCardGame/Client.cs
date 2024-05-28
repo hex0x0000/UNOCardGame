@@ -121,7 +121,7 @@ namespace UNOCardGame
         /// Arresta il listener
         /// </summary>
         private CancellationTokenSource ListenerCancellation;
-        
+
         /// <summary>
         /// Arresta il sender
         /// </summary>
@@ -130,6 +130,7 @@ namespace UNOCardGame
         private volatile int _IsSenderRunning = 0;
 
         /// <summary>
+        /// Determina se il sender sta girando
         /// Questa proprietà può essere modificata in modo thread-safe.
         /// </summary>
         private bool IsSenderRunning
@@ -264,8 +265,7 @@ namespace UNOCardGame
         {
             if (ServerSocket != null)
             {
-                if (ListenerCancellation != null)
-                    ListenerCancellation.Cancel();
+                ListenerCancellation?.Cancel();
 
                 if (IsSenderRunning)
                     Send(new ConnectionEnd(abandon, null));
@@ -273,8 +273,7 @@ namespace UNOCardGame
                 // Aspetta che il sender mandi la disconnessione
                 while (IsSenderRunning) ;
 
-                if (SenderCancellation != null)
-                    SenderCancellation.Cancel();
+                SenderCancellation?.Cancel();
 
                 if (SenderHandler != null)
                 {
@@ -292,7 +291,6 @@ namespace UNOCardGame
 
                 ServerSocket.Close();
                 ServerSocket = null;
-                // TODO: Salvataggio partita nella lista delle partite fatte
             }
             if (abandon)
             {
@@ -339,17 +337,18 @@ namespace UNOCardGame
             {
                 if (e.ExceptionType == PacketExceptions.ConnectionClosed)
                     return;
-                Log.Error($"Packet exception occurred: {e}");
-                ForceClose.Report(($"Packet exception occurred: {e}", false));
+                string msg = $"Errore di comunicazione dei pacchetti nel sender: {e}";
+                Log.Error(msg);
+                ForceClose.Report((msg, false));
             }
             catch (OperationCanceledException)
             {
-                Log.Info("Closing sender...");
+                Log.Info("Chiusura sender...");
             }
             catch (Exception e)
             {
-                Log.Error($"Exception occurred: {e}");
-                ForceClose.Report(($"Exception occurred: {e}", false));
+                Log.Error($"Errore nel sender: {e}");
+                ForceClose.Report(($"Errore nel sender: {e}", false));
             }
             finally
             {
@@ -371,7 +370,7 @@ namespace UNOCardGame
         private async Task Listener(CancellationToken canc)
         {
             // Lista dei player nel gioco
-            Dictionary<uint, Player> players = new();
+            Dictionary<uint, Player> players = [];
 
             string errMsg = "Errore durante la ricezione dei pacchetti dal server: ";
             try
@@ -446,7 +445,7 @@ namespace UNOCardGame
                                 {
                                     if (_players.Count == 0)
                                     {
-                                        Log.Warn("Server sent an invalid PlayersUpdate packet");
+                                        Log.Warn("Il server ha mandato un PlayersUpdate non valido");
                                         packetString = packet.Serialize();
                                         goto invalid;
                                     }
@@ -472,12 +471,12 @@ namespace UNOCardGame
                         default:
                             canc.ThrowIfCancellationRequested();
                             if (packetType != 0)
-                                Log.Warn($"Server sent an unknown packet: {packetType}");
+                                Log.Warn($"Il server ha mandato un pacchetto sconosciuto: {packetType}");
                             await Packet.CancelReceive(ServerSocket);
                             continue;
                     }
                 invalid:
-                    Log.Warn($"Server sent an invalid packet. Type: {packetType}, string: {packetString}");
+                    Log.Warn($"Il server ha mandato un pacchetto non valido. Type: {packetType}, string: {packetString}");
                 }
             }
             catch (PacketException e)
@@ -486,13 +485,9 @@ namespace UNOCardGame
                 Log.Error(errMsg);
                 ForceClose.Report((errMsg, false));
             }
-            catch (ObjectDisposedException)
+            catch (Exception e) when (e is OperationCanceledException || e is ObjectDisposedException)
             {
-                Log.Info("Closing listener...");
-            }
-            catch (OperationCanceledException)
-            {
-                Log.Info("Closing listener...");
+                Log.Info("Chiusura listener...");
             }
             catch (Exception e)
             {
@@ -542,9 +537,11 @@ namespace UNOCardGame
             try
             {
                 endPoint = new(ip, ServerPort);
-                ServerSocket = new(endPoint.AddressFamily, SocketType.Stream, ProtocolType.Tcp);
-                ServerSocket.ReceiveTimeout = -1;
-                ServerSocket.SendTimeout = TimeOutMillis;
+                ServerSocket = new(endPoint.AddressFamily, SocketType.Stream, ProtocolType.Tcp)
+                {
+                    ReceiveTimeout = -1,
+                    SendTimeout = TimeOutMillis
+                };
                 await ServerSocket.ConnectAsync(endPoint);
                 HasConnected = true;
                 Log.Info($"Connesso al server: {endPoint}");
@@ -581,7 +578,7 @@ namespace UNOCardGame
         /// <returns></returns>
         private async Task Join()
         {
-            string msg = null;
+            string msg;
             try
             {
                 // Manda la richiesta per unirsi al gioco

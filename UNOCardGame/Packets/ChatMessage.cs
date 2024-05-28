@@ -49,6 +49,6 @@ namespace UNOCardGame.Packets
             FromId = fromId; Message = message;
         }
 
-        private static string MsgCut(string value) => value.Length <= MSG_MAX_CHARS ? value : value.Substring(0, MSG_MAX_CHARS);
+        private static string MsgCut(string value) => value.Length <= MSG_MAX_CHARS ? value : value[..MSG_MAX_CHARS];
     }
 }

@@ -10,7 +10,8 @@ namespace UNOCardGame.Packets
     /// <summary>
     /// Pacchetto mandato al client per dire che è terminato il gioco, con anche la classifica dei giocatori
     /// </summary>
-    public class GameEnd : Serialization<GameEnd>
+    [method: JsonConstructor]
+    public class GameEnd(Dictionary<int, string> winners) : Serialization<GameEnd>
     {
         [JsonIgnore]
         public override short PacketId => (short)PacketType.GameEnd;
@@ -18,10 +19,7 @@ namespace UNOCardGame.Packets
         /// <summary>
         /// Lista dei vincitori. Numero nella classifica e nome
         /// </summary>
-        public Dictionary<int, string> Winners { get; } = [];
-
-        [JsonConstructor]
-        public GameEnd(Dictionary<int, string> winners) => Winners = winners;
+        public Dictionary<int, string> Winners { get; } = winners;
 
         public override string ToString()
         {

@@ -56,6 +56,16 @@ namespace UNOCardGame
         }
 
         /// <summary>
+        /// Aggiunge una determinata carta
+        /// </summary>
+        public void Add(Card card)
+        {
+            card.Id = _IdCounter;
+            Cards.Add(card);
+            _IdCounter++;
+        }
+
+        /// <summary>
         /// Rimuove la carta dal mazzo
         /// </summary>
         /// <param name="cardId">ID della carta</param>
