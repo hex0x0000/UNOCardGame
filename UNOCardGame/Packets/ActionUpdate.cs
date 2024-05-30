@@ -10,8 +10,7 @@ namespace UNOCardGame.Packets
     public enum ActionType
     {
         Draw,
-        CallBluff,
-        SaidUno
+        CallBluff
     }
 
     /// <summary>
