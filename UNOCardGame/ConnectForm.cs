@@ -77,8 +77,10 @@ namespace UNOCardGame
                         // Inizia il gioco come client
                         Game = new MainGame(new Player(nickname.Text, personalizations), address.Text, ushort.Parse(port.Text), _isDNS);
                     else
+                    {
                         // Inizia il gioco come server (host)
-                        Game = new MainGame(new Player(nickname.Text, personalizations), address.Text, ushort.Parse(port.Text));
+                        Game = new MainGame(new Player(nickname.Text, personalizations), address.Text, ushort.Parse(port.Text), ServerOptions.ShowOptions());
+                    }
                     Game.FormClosed += (sender, e) =>
                     {
                         PrevUser = Game.Client.Player;
@@ -128,8 +130,10 @@ namespace UNOCardGame
             if (nickname.Text != "")
             {
                 labelPanel.Controls.Clear();
-                var player = new Player(nickname.Text, personalizations);
-                player.IsOnline = true;
+                var player = new Player(nickname.Text, personalizations)
+                {
+                    IsOnline = true
+                };
                 labelPanel.Controls.Add(player.GetAsLabel(false, 0));
             }
         }

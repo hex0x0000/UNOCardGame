@@ -22,9 +22,15 @@ namespace UNOCardGame.Packets
         [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
         public List<Player> Players { get; }
 
+        /// <summary>
+        /// ID del player per aggiornare lo status
+        /// </summary>
         [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
         public uint? Id { get; }
 
+        /// <summary>
+        /// Indica se il player è online o no
+        /// </summary>
         [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
         public bool? IsOnline { get; }
 

@@ -165,7 +165,7 @@
             // 
             // labelPanel
             // 
-            labelPanel.Location = new System.Drawing.Point(266, 75);
+            labelPanel.Location = new System.Drawing.Point(266, 73);
             labelPanel.Name = "labelPanel";
             labelPanel.Size = new System.Drawing.Size(200, 32);
             labelPanel.TabIndex = 13;
@@ -190,6 +190,7 @@
             Controls.Add(nickLabel);
             Controls.Add(portLabel);
             FormBorderStyle = System.Windows.Forms.FormBorderStyle.FixedDialog;
+            MaximizeBox = false;
             Name = "ConnectForm";
             StartPosition = System.Windows.Forms.FormStartPosition.CenterScreen;
             Text = "Connessione";

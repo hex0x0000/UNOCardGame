@@ -18,7 +18,7 @@ using UNOCardGame.Packets;
 namespace UNOCardGame
 {
     [SupportedOSPlatform("windows")]
-    class Server(string address, ushort port)
+    class Server(string address, ushort port, ServerOptions options)
     {
         /// <summary>
         /// ID dell'admin. Sempre 0
@@ -28,7 +28,12 @@ namespace UNOCardGame
         /// <summary>
         /// Numero massimo di player che possono unirsi al Server.
         /// </summary>
-        public const int MAX_PLAYERS = 16;
+        private readonly int MaxPlayers = options.MaxPlayers;
+
+        /// <summary>
+        /// Messaggio di entrata nel server
+        /// </summary>
+        private readonly ChatMessage MotdMessage = new(options.MotdMessage);
 
         /// <summary>
         /// Timeout della connessione.
@@ -130,17 +135,19 @@ namespace UNOCardGame
         private readonly Logger Log = new("SERVER");
 
         /// <summary>
-        /// Elimina il listener
+        /// Ferma il listener
         /// </summary>
         private CancellationTokenSource ListenerCancellation;
 
         /// <summary>
-        /// Elimina il broadcaster
+        /// Ferma il broadcaster
         /// </summary>
         private CancellationTokenSource BroadcasterCancellation;
 
         /// <summary>
-        /// Elimina il gamemaster
+        /// Ferma il gamemaster.
+        /// Se il gamemaster è in una partita un nuovo gamemaster viene lanciato per aspettare l'avvio,
+        /// altrimenti viene fermato definitivamente
         /// </summary>
         private CancellationTokenSource GameMasterCancellation;
 
@@ -224,6 +231,12 @@ namespace UNOCardGame
             /// Permette di terminare l'handler del client
             /// </summary>
             public CancellationTokenSource Cancellation;
+
+            /// <summary>
+            /// Determina se è necessario chiudere la connessione o rimuovere il player
+            /// quando viene mandato il cancellation token
+            /// </summary>
+            public bool Remove = false;
         }
 
         /// <summary>
@@ -255,6 +268,32 @@ namespace UNOCardGame
             /// ID del player a cui mandare il pacchetto (opzionale).
             /// </summary>
             public readonly uint? PlayerId;
+        }
+
+        /// <summary>
+        /// PacketId dell'InternalComm
+        /// </summary>
+        private const short INTERNALCOMM_ID = -1;
+
+        /// <summary>
+        /// Comunicazioni interne al server
+        /// </summary>
+        private enum InternalComm
+        {
+            /// <summary>
+            /// Salta il turno del player, in caso di disconnesioni
+            /// </summary>
+            SkipPlayer,
+
+            /// <summary>
+            /// Aggiorna lo stato del player in caso di riconnessione
+            /// </summary>
+            UpdateCardsOfPlayer,
+
+            /// <summary>
+            /// Comunica che il player ha detto UNO!
+            /// </summary>
+            SaidUno
         }
 
         ~Server()
@@ -500,8 +539,9 @@ namespace UNOCardGame
         /// </summary>
         /// <param name="addCards">Numero di carte da aggiungere</param>
         /// <param name="playerId">ID del player</param>
+        /// <param name="isOnline">Indica se il player a cui si aggiungono carte è online o no</param>
         /// <returns></returns>
-        private async Task AddCardsToPlayer(uint addCards, uint playerId)
+        private async Task AddCardsToPlayer(uint addCards, uint playerId, bool isOnline = true)
         {
             if (addCards == 0) addCards = 1;
             var (deck, _) = await GetPlayerDeckAndName(playerId);
@@ -509,7 +549,8 @@ namespace UNOCardGame
             {
                 deck.Add(addCards);
                 await SetPlayerDeck(playerId, deck);
-                await SendToClient(new TurnUpdate(deck.Cards), playerId);
+                if (isOnline)
+                    await SendToClient(new TurnUpdate(deck.Cards), playerId);
             }
         }
 
@@ -530,7 +571,7 @@ namespace UNOCardGame
             }
             PlayersLock.Release();
             if (name != null)
-                await SendToClients(new ChatMessage($"{name} ha vinto!"));
+                await SendMessage("Game", $"{name} ha vinto!");
         }
 
         /// <summary>
@@ -593,9 +634,9 @@ namespace UNOCardGame
             // Indica quanti giocatori hanno vinto
             int wonCount = 0;
 
-            await ResetGame();
-            await SendToClients(new ChatMessage("Partita avviata!"));
             // Manda carte ai client
+            await ResetGame();
+            await SendMessage("Game", "Partita avviata!");
             try
             {
                 while (true)
@@ -617,7 +658,61 @@ namespace UNOCardGame
                     canc.ThrowIfCancellationRequested();
                     await SendToClients(new TurnUpdate(playerTurnId, tableCard, isLeftToright, await GetPlayersCardsNum()));
                     var packet = await GameMasterCommunicator.Reader.ReadAsync(canc);
-                    if ((PacketType)packet.PacketId == PacketType.ActionUpdate)
+                    if (packet.PacketId == INTERNALCOMM_ID)
+                    {
+                        switch ((InternalComm)packet.Data)
+                        {
+                            case InternalComm.UpdateCardsOfPlayer:
+                                {
+                                    if (packet.PlayerId is uint playerId)
+                                    {
+                                        var (deck, name) = await GetPlayerDeckAndName(playerId);
+                                        await SendToClient(new TurnUpdate(deck.Cards), playerId);
+                                        await SendMessage("Game", $"{name} è stato rimesso nella partita");
+                                    }
+                                    else Log.Warn($"Il GameMaster ha ricevuto un {nameof(InternalComm.UpdateCardsOfPlayer)} senza player id");
+                                }
+                                break;
+                            case InternalComm.SkipPlayer:
+                                {
+                                    if (packet.PlayerId is uint playerId)
+                                    {
+                                        if (playerTurnId == playerId)
+                                        {
+                                            // Evita che il player esca senza prendersi le carte in più
+                                            if (addCards > 0)
+                                            {
+                                                await AddCardsToPlayer(addCards, playerId, false);
+                                                addCards = 0;
+                                            }
+                                            else if (gavePlusFour != null)
+                                            {
+                                                await AddCardsToPlayer(4, playerId, false);
+                                                gavePlusFour = null;
+                                            }
+                                            else await AddCardsToPlayer(1, playerId, false);
+                                            nextTurn = true;
+                                        }
+                                    }
+                                    else Log.Warn($"Il GameMaster ha ricevuto un {nameof(InternalComm.SkipPlayer)} senza player id");
+                                }
+                                break;
+                            case InternalComm.SaidUno:
+                                {
+                                    if (packet.PlayerId is uint playerId)
+                                    {
+                                        if (playerTurnId == playerId)
+                                            saidUno = true;
+                                    }
+                                    else Log.Warn($"Il GameMaster ha ricevuto un {nameof(InternalComm.SaidUno)} senza player id");
+                                }
+                                break;
+                            default:
+                                Log.Warn($"Il GameMaster ha ricevuto un {nameof(InternalComm)} non valido: {(InternalComm)packet.Data}");
+                                break;
+                        }
+                    }
+                    else if ((PacketType)packet.PacketId == PacketType.ActionUpdate)
                     {
                         if (packet.PlayerId is uint playerId)
                         {
@@ -641,7 +736,7 @@ namespace UNOCardGame
                                         if (addCards > 0)
                                         {
                                             await AddCardsToPlayer(addCards, playerId);
-                                            await SendToClients(new ChatMessage($"A {name} sono state date {addCards} carte!"));
+                                            await SendMessage("Game", $"A {name} sono state date {addCards} carte!");
                                             addCards = 0;
                                         }
                                     if (tableCard.IsCompatible(card))
@@ -683,7 +778,7 @@ namespace UNOCardGame
                                             else
                                             {
                                                 await AddCardsToPlayer(2, playerId);
-                                                await SendToClients(new ChatMessage($"{name} non ha detto UNO!"));
+                                                await SendMessage("Game", $"{name} non ha detto UNO!");
                                             }
                                         }
                                         await SetPlayerDeck(playerId, deck);
@@ -717,7 +812,7 @@ namespace UNOCardGame
                                                     else if (normalType == Normals.PlusTwo)
                                                         addCards += 2;
                                                     tableCard = card;
-                                                    await SendToClient(new ChatMessage("La carta pescata è stata messa nel mazzo."), playerId);
+                                                    await SendMessage("Game", "La carta pescata è stata messa nel mazzo.", playerId);
                                                 }
                                                 else
                                                 {
@@ -742,20 +837,17 @@ namespace UNOCardGame
                                                 if (prevPlayerDeck.CouldSend(prevCardTable))
                                                 {
                                                     await AddCardsToPlayer(4, playerWhoGavePlusFour);
-                                                    await SendToClients(new ChatMessage($"{prevName} stava bluffando! Ha tirato un +4 avendo già altre carte"));
+                                                    await SendMessage("Game", $"{prevName} stava bluffando! Ha tirato un +4 avendo già altre carte");
                                                 }
                                                 else
                                                 {
                                                     await AddCardsToPlayer(6, playerId);
-                                                    await SendToClients(new ChatMessage($"{prevName} non stava bluffando! Date 6 carte a {currName}"));
+                                                    await SendMessage("Game", $"{prevName} non stava bluffando! Date 6 carte a {currName}");
                                                 }
                                             }
                                             else await SendToClient(new GameMessage(MessageType.Info, MessageContent.CannotCallBluff), playerId);
                                             gavePlusFour = null;
                                             nextTurn = true;
-                                            break;
-                                        case ActionType.SaidUno:
-                                            saidUno = true;
                                             break;
                                         default:
                                             Log.Warn($"ActionType non valido: {actionType}");
@@ -765,21 +857,20 @@ namespace UNOCardGame
                                 else Log.Warn($"ActionUpdate mandato dal client non valido: {actionUpdate.Serialize()}");
                             }
                             else await SendToClient(new GameMessage(MessageType.Error, MessageContent.NotYourTurn), playerId);
-                            continue;
                         }
                     }
-                    Log.Warn($"Pacchetto non valido mandato al GameMaster: {packet.PacketId}");
+                    else Log.Warn($"Pacchetto non valido mandato al GameMaster: {packet.PacketId}");
                 }
             }
             catch (OperationCanceledException)
             {
                 Log.Info("Chiusura GameMaster...");
                 await SendToClients(new GameEnd(await GetWinningPlayers()));
-                await SendToClients(new ChatMessage("Il gioco è terminato!"));
+                await SendMessage("Game", "Il gioco è terminato!");
                 HasStarted = false;
             }
 
-            // Riavvia un nuovo GameMaster
+            // Avvia un nuovo GameMaster
             GameMasterCancellation = new();
             GameMasterHandler = new Task(async () => await GameMaster(GameMasterCancellation.Token));
             GameMasterHandler.Start();
@@ -794,8 +885,14 @@ namespace UNOCardGame
         /// <returns></returns>
         private async Task SendToGameMaster(ActionUpdate packet, uint id)
         {
-            if (GameMasterCommunicator != null)
+            if (GameMasterCommunicator != null && HasStarted)
                 await GameMasterCommunicator.Writer.WriteAsync(new ChannelData(packet.PacketId, packet, id));
+        }
+
+        private async Task SendInternalComm(InternalComm comm, uint id)
+        {
+            if (GameMasterCommunicator != null && HasStarted)
+                await GameMasterCommunicator.Writer.WriteAsync(new ChannelData(INTERNALCOMM_ID, comm, id));
         }
 
         /// <summary>
@@ -886,6 +983,23 @@ namespace UNOCardGame
             if (BroadcasterCommunicator != null)
                 await BroadcasterCommunicator.Writer.WriteAsync(new ChannelData(packet.PacketId, packet, sendTo));
         }
+
+        /// <summary>
+        /// Manda un messaggio a tutti i client
+        /// </summary>
+        /// <param name="sender">Chi l'ha mandato</param>
+        /// <param name="message">Messaggio</param>
+        /// <returns></returns>
+        private async Task SendMessage(string sender, string message) => await SendToClients(new ChatMessage($"[{sender}] {message}"));
+
+        /// <summary>
+        /// Manda un messaggio a un client specifico
+        /// </summary>
+        /// <param name="sender">Chi l'ha mandato</param>
+        /// <param name="message">Messaggio</param>
+        /// <param name="playerId">Player a cui mandare il messaggio</param>
+        /// <returns></returns>
+        private async Task SendMessage(string sender, string message, uint playerId) => await SendToClient(new ChatMessage($"[{sender}] {message}"), playerId);
 
         /// <summary>
         /// Thread che manda i pacchetti ai client.
@@ -1029,7 +1143,7 @@ namespace UNOCardGame
             string[] args = msg.ToLower().Split(' ');
             if (args[0] == "uno!")
             {
-                await SendToGameMaster(new ActionUpdate(null, null, ActionType.SaidUno), id);
+                await SendInternalComm(InternalComm.SaidUno, id);
                 return true;
             }
             // I comandi sono riservati all'admin
@@ -1038,24 +1152,24 @@ namespace UNOCardGame
             switch (args[0])
             {
                 case ".help":
-                    await SendToClient(new ChatMessage($".help - Mostra questo messaggio{Environment.NewLine}.start - Avvia il gioco{Environment.NewLine}.stop - Termina il gioco{Environment.NewLine}.kick - Disconnette un utente{Environment.NewLine}.remove - Rimuove un utente"), id);
+                    await SendMessage("Cmd", $".help - Mostra questo messaggio{Environment.NewLine}.start - Avvia il gioco{Environment.NewLine}.stop - Termina il gioco{Environment.NewLine}.kick - Disconnette un utente{Environment.NewLine}.remove - Rimuove un utente", id);
                     return false;
                 case ".start":
                     if (!HasStarted)
                     {
                         if (await GetPlayersNum() > 1)
                         {
-                            await SendToClients(new ChatMessage("Avvio del gioco..."));
+                            await SendMessage("Server", "Avvio del gioco...");
                             HasStarted = true;
                         }
-                        else await SendToClients(new ChatMessage("Il gioco ha bisogno di due o più giocatori"));
+                        else await SendMessage("Cmd", "Il gioco ha bisogno di due o più giocatori", id);
                     }
-                    else await SendToClient(new ChatMessage("Il gioco è già partito."), id);
+                    else await SendMessage("Cmd", "Il gioco è già partito.", id);
                     return false;
                 case ".stop":
                     if (HasStarted)
                         GameMasterCancellation.Cancel();
-                    else await SendToClient(new ChatMessage("Il gioco non è ancora partito."), id);
+                    else await SendMessage("Cmd", "Il gioco non è ancora partito.", id);
                     return false;
                 case ".kick":
                     if (args.Length >= 2)
@@ -1067,14 +1181,13 @@ namespace UNOCardGame
                             Log.Info($"Utente da kickare: {kickId}");
                             if (kickId != ADMIN_ID)
                             {
-                                await SendToClient(new ConnectionEnd(false, "Sei stato kickato, potrai riunirti in seguito"), kickId);
-                                await SendToClients(new ChatMessage($"{name} è stato kickato"));
+                                await KickPlayer(kickId);
+                                await SendMessage("Server", $"{name} è stato kickato");
                             }
                         }
-                        else
-                            await SendToClient(new ChatMessage($"L'utente {name} non esiste"), id);
+                        else await SendMessage("Cmd", $"L'utente {name} non esiste", id);
                     }
-                    else await SendToClient(new ChatMessage("Comando .kick non valido. Uso: .kick NomePlayer"), id);
+                    else await SendMessage("Cmd", "Comando .kick non valido. Uso: .kick NomePlayer", id);
                     return false;
                 case ".remove":
                     if (args.Length >= 2)
@@ -1086,14 +1199,13 @@ namespace UNOCardGame
                             Log.Info($"Utente da rimuovere: {removeId}");
                             if (removeId != ADMIN_ID)
                             {
-                                await SendToClient(new ConnectionEnd(true, "Sei stato rimosso dalla partita"), removeId);
-                                await SendToClients(new ChatMessage($"{name} è stato rimosso"));
+                                await RemovePlayer(removeId);
+                                await SendMessage("Server", $"{name} è stato rimosso");
                             }
                         }
-                        else
-                            await SendToClient(new ChatMessage($"L'utente {name} non esiste"), id);
+                        else await SendMessage("Cmd", $"L'utente {name} non esiste", id);
                     }
-                    else await SendToClient(new ChatMessage("Comando .remove non valido. Uso: .remove NomePlayer"), id);
+                    else await SendMessage("Cmd", "Comando .remove non valido. Uso: .remove NomePlayer", id);
                     return false;
                 default:
                     return true;
@@ -1113,9 +1225,10 @@ namespace UNOCardGame
 
             // Salva l'ip in caso di disconnessione improvvisa
             string addr = Logger.ToAddress(client);
-            while (true)
+
+            try
             {
-                try
+                while (true)
                 {
                     canc.ThrowIfCancellationRequested();
                     // Riceve il tipo del pacchetto
@@ -1143,12 +1256,8 @@ namespace UNOCardGame
                             continue;
                         case PacketType.ActionUpdate:
                             {
-                                if (HasStarted)
-                                {
-                                    var packet = await Packet.Receive<ActionUpdate>(client);
-                                    await SendToGameMaster(packet, userId);
-                                }
-                                else goto default;
+                                var packet = await Packet.Receive<ActionUpdate>(client);
+                                await SendToGameMaster(packet, userId);
                             }
                             continue;
                         default:
@@ -1157,21 +1266,20 @@ namespace UNOCardGame
                             continue;
                     }
                 }
-                catch (PacketException e)
-                {
-                    Log.Error(addr, $"Packet exception durante l'handling di un client: {e}");
-                    break;
-                }
-                catch (Exception e) when (e is OperationCanceledException || e is ObjectDisposedException)
-                {
-                    Log.Info(addr, "Chiusura di questo client handler...");
-                    break;
-                }
-                catch (Exception e)
-                {
-                    Log.Error(addr, $"Errore durante l'handling di un client: {e}");
-                    break;
-                }
+            }
+            catch (PacketException e)
+            {
+                Log.Error(addr, $"Packet exception durante l'handling di un client: {e}");
+            }
+            catch (Exception e) when (e is OperationCanceledException || e is ObjectDisposedException)
+            {
+                Log.Info(addr, "Chiusura di questo client handler...");
+                if (await ShouldRemove(userId))
+                    goto abandon;
+            }
+            catch (Exception e)
+            {
+                Log.Error(addr, $"Errore durante l'handling di un client: {e}");
             }
 
         // Disconnessione possibilmente temporanea del client
@@ -1181,17 +1289,17 @@ namespace UNOCardGame
             await CloseClient(userId);
 
             // Manda l'update della disconnessione
-            await SendToClients(new ChatMessage($"{name} si è disconnesso"));
+            await SendMessage("Server", $"{name} si è disconnesso");
             return;
 
         // Disconnessione permanente del client.
         // I dati del giocatore vengono rimossi dalla memoria.
         abandon:
             Log.Info(addr, "Rimozione client...");
-            await RemovePlayer(userId);
+            await RemovePlayerData(userId);
 
             // Manda l'update della rimozione del player
-            await SendToClients(new ChatMessage($"{name} ha abbandonato"));
+            await SendMessage("Server", $"{name} ha abbandonato");
             return;
         }
 
@@ -1212,12 +1320,11 @@ namespace UNOCardGame
             // Imposta il player come offline e cancella l'handler del client
             await PlayersLock.WaitAsync();
             if (Players.TryGetValue(id, out var player))
-            {
-                player.Cancellation.Cancel();
                 player.Player.IsOnline = false;
-            }
             PlayersLock.Release();
 
+            // Aggiorna lo stato della partita e dei giocatori
+            await SendInternalComm(InternalComm.SkipPlayer, id);
             await UpdatePlayer(id, false);
         }
 
@@ -1226,7 +1333,7 @@ namespace UNOCardGame
         /// </summary>
         /// <param name="id">ID del player da rimuovere</param>
         /// <returns></returns>
-        private async Task RemovePlayer(uint id)
+        private async Task RemovePlayerData(uint id)
         {
             // Chiude la connessione
             await ClientsLock.WaitAsync();
@@ -1237,13 +1344,63 @@ namespace UNOCardGame
 
             // Rimuove il giocatore
             await PlayersLock.WaitAsync();
-            if (Players.TryGetValue(id, out var player))
-                player.Cancellation.Cancel();
             Players.Remove(id);
             PlayersLock.Release();
 
+            // Aggiorna lo stato della partita e dei giocatori
+            await SendInternalComm(InternalComm.SkipPlayer, id);
             await UpdatePlayers();
         }
+
+        /// <summary>
+        /// Kicka il player dalla partita
+        /// </summary>
+        /// <param name="id"></param>
+        /// <returns></returns>
+        private async Task KickPlayer(uint id)
+        {
+            await SendToClient(new ConnectionEnd(false, "Sei stato kickato, potrai riunirti in seguito"), id);
+            await PlayersLock.WaitAsync();
+            if (Players.TryGetValue(id, out var playerData))
+            {
+                playerData.Remove = false;
+                playerData.Cancellation.Cancel();
+            }
+            PlayersLock.Release();
+        }
+
+        /// <summary>
+        /// Dice se il player deve essere rimosso
+        /// </summary>
+        /// <param name="id"></param>
+        /// <returns></returns>
+        private async Task<bool> ShouldRemove(uint id)
+        {
+            bool remove = true;
+            await PlayersLock.WaitAsync();
+            if (Players.TryGetValue(id, out var playerData))
+                remove = playerData.Remove;
+            PlayersLock.Release();
+            return remove;
+        }
+
+        /// <summary>
+        /// Causa la rimozione di un player
+        /// </summary>
+        /// <param name="id"></param>
+        /// <returns></returns>
+        private async Task RemovePlayer(uint id)
+        {
+            await SendToClient(new ConnectionEnd(true, "Sei stato rimosso dalla partita"), id);
+            await PlayersLock.WaitAsync();
+            if (Players.TryGetValue(id, out var playerData))
+            {
+                playerData.Remove = true;
+                playerData.Cancellation.Cancel();
+            }
+            PlayersLock.Release();
+        }
+
 
         /// <summary>
         /// Manda ai client la lista aggiornata di tutti i player
@@ -1258,6 +1415,22 @@ namespace UNOCardGame
             PlayersLock.Release();
             var playersUpdate = new PlayersUpdate(players, null, null);
             await SendToClients(playersUpdate);
+        }
+
+        /// <summary>
+        /// Aggiorna la lista dei player a un player specifico
+        /// </summary>
+        /// <param name="id">ID del player a cui mandare l'update</param>
+        /// <returns></returns>
+        private async Task UpdatePlayersTo(uint id)
+        {
+            var players = new List<Player>();
+            await PlayersLock.WaitAsync();
+            foreach (var player in Players)
+                players.Add((Player)player.Value.Player.Clone());
+            PlayersLock.Release();
+            var playersUpdate = new PlayersUpdate(players, null, null);
+            await SendToClient(playersUpdate, id);
         }
 
         /// <summary>
@@ -1300,9 +1473,9 @@ namespace UNOCardGame
                 {
                     case JoinType.Join:
                         // Se supera il numero massimo di player non accetta la connessione
-                        if (await GetPlayersNumTot() >= MAX_PLAYERS)
+                        if (await GetPlayersNumTot() >= MaxPlayers)
                         {
-                            var status = new JoinStatus($"Ci sono troppi player nel server. Numero massimo: {MAX_PLAYERS}");
+                            var status = new JoinStatus($"Ci sono troppi player nel server. Numero massimo: {MaxPlayers}");
                             await Packet.Send(client, status);
                             goto close;
                         }
@@ -1346,7 +1519,8 @@ namespace UNOCardGame
 
                             // Manda la nuova lista dei player
                             await UpdatePlayers();
-                            await SendToClients(new ChatMessage($"Un nuovo player si è unito: {playerData.Player.Name}"));
+                            await SendMessage("Server", $"Un nuovo player si è unito: {playerData.Player.Name}");
+                            await SendToClient(MotdMessage, newID);
 
                             return;
                         }
@@ -1417,13 +1591,16 @@ namespace UNOCardGame
                             if (userId == ADMIN_ID)
                             {
                                 await UpdatePlayers();
-                                await SendToClients(new ChatMessage($"Benvenuto nel gioco, {name}."));
+                                await SendMessage("Server", $"Benvenuto nel gioco, {name}.");
                             }
                             else
                             {
+                                await UpdatePlayersTo(userId);
                                 await UpdatePlayer(userId, true);
-                                await SendToClients(new ChatMessage($"{name} si è riconnesso"));
+                                await SendInternalComm(InternalComm.UpdateCardsOfPlayer, userId);
+                                await SendMessage("Server", $"{name} si è riconnesso");
                             }
+                            await SendToClient(MotdMessage, userId);
 
                             return;
                         }

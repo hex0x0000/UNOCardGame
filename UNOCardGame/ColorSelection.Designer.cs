@@ -36,6 +36,8 @@
             // 
             // redButton
             // 
+            redButton.Font = new System.Drawing.Font("Segoe UI", 14.25F, System.Drawing.FontStyle.Bold, System.Drawing.GraphicsUnit.Point, 0);
+            redButton.Image = Properties.Resources.Red;
             redButton.Location = new System.Drawing.Point(16, 9);
             redButton.Name = "redButton";
             redButton.Size = new System.Drawing.Size(150, 150);
@@ -46,6 +48,8 @@
             // 
             // blueButton
             // 
+            blueButton.Font = new System.Drawing.Font("Segoe UI", 14.25F, System.Drawing.FontStyle.Bold, System.Drawing.GraphicsUnit.Point, 0);
+            blueButton.Image = Properties.Resources.Blue;
             blueButton.Location = new System.Drawing.Point(172, 9);
             blueButton.Name = "blueButton";
             blueButton.Size = new System.Drawing.Size(150, 150);
@@ -56,6 +60,8 @@
             // 
             // yellowButton
             // 
+            yellowButton.Font = new System.Drawing.Font("Segoe UI", 14.25F, System.Drawing.FontStyle.Bold, System.Drawing.GraphicsUnit.Point, 0);
+            yellowButton.Image = Properties.Resources.Yellow;
             yellowButton.Location = new System.Drawing.Point(16, 165);
             yellowButton.Name = "yellowButton";
             yellowButton.Size = new System.Drawing.Size(150, 150);
@@ -66,6 +72,8 @@
             // 
             // greenButton
             // 
+            greenButton.Font = new System.Drawing.Font("Segoe UI", 14.25F, System.Drawing.FontStyle.Bold, System.Drawing.GraphicsUnit.Point, 0);
+            greenButton.Image = Properties.Resources.Green;
             greenButton.Location = new System.Drawing.Point(172, 165);
             greenButton.Name = "greenButton";
             greenButton.Size = new System.Drawing.Size(150, 150);
@@ -84,6 +92,7 @@
             Controls.Add(blueButton);
             Controls.Add(redButton);
             FormBorderStyle = System.Windows.Forms.FormBorderStyle.FixedDialog;
+            MaximizeBox = false;
             Name = "ColorSelection";
             StartPosition = System.Windows.Forms.FormStartPosition.CenterParent;
             Text = "Seleziona un colore";

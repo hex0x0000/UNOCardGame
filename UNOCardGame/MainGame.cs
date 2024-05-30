@@ -147,12 +147,12 @@ namespace UNOCardGame
         /// <param name="player"></param>
         /// <param name="address"></param>
         /// <param name="port"></param>
-        public MainGame(Player player, string address, ushort port)
+        public MainGame(Player player, string address, ushort port, ServerOptions options)
         {
             InitializeComponent();
             InitStyleComponents();
             InitClient(player, address, port, false, null);
-            Server = new Server(address, port);
+            Server = new Server(address, port, options);
         }
 
         /// <summary>
@@ -166,18 +166,18 @@ namespace UNOCardGame
             {
                 tableCard.Image = (Image)Properties.Resources.ResourceManager.GetObject("None");
                 colorPic.Hide();
+                tableCard.Text = null;
             }
             catch (Exception)
             {
                 tableCard.Text = "None";
             }
-            Label infoLabel = new();
-            infoLabel.AutoSize = true;
-            infoLabel.Font = new Font(chat.Font.FontFamily, 14f, FontStyle.Bold);
-            if (Server == null)
-                infoLabel.Text = "Aspettando che il server inizi la partita...";
-            else
-                infoLabel.Text = "Per far iniziare la partita scrivi '.start' in chat.";
+            Label infoLabel = new()
+            {
+                AutoSize = true,
+                Font = new Font(chat.Font.FontFamily, 14f, FontStyle.Bold),
+                Text = (Server == null) ? "Aspettando che il server inizi la partita..." : "Per far iniziare la partita scrivi '.start' in chat."
+            };
             cards.Controls.Clear();
             cards.Controls.Add(infoLabel);
             if (_end is GameEnd end)
@@ -268,6 +268,7 @@ namespace UNOCardGame
                     tableCard.Image = (Image)Properties.Resources.ResourceManager.GetObject(_tableCard.ToString());
                     colorPic.Show();
                     colorPic.Image = (Image)Properties.Resources.ResourceManager.GetObject(_tableCard.Color.ToString());
+                    tableCard.Text = null;
                 }
                 catch (Exception)
                 {
