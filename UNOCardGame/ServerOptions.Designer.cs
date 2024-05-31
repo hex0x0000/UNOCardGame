@@ -28,6 +28,7 @@
         /// </summary>
         private void InitializeComponent()
         {
+            System.ComponentModel.ComponentResourceManager resources = new System.ComponentModel.ComponentResourceManager(typeof(ServerOptions));
             maxPlayerLabel = new System.Windows.Forms.Label();
             label2 = new System.Windows.Forms.Label();
             ok = new System.Windows.Forms.Button();
@@ -91,6 +92,7 @@
             Controls.Add(label2);
             Controls.Add(maxPlayerLabel);
             FormBorderStyle = System.Windows.Forms.FormBorderStyle.FixedDialog;
+            Icon = (System.Drawing.Icon)resources.GetObject("$this.Icon");
             MaximizeBox = false;
             Name = "ServerOptions";
             StartPosition = System.Windows.Forms.FormStartPosition.CenterParent;

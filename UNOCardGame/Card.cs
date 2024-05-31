@@ -310,8 +310,10 @@ namespace UNOCardGame
         [SupportedOSPlatform("windows")]
         public Button GetAsButton(Func<Card, int> fn)
         {
-            Button btn = new();
-            btn.Size = new Size(150, 250);
+            Button btn = new()
+            {
+                Size = new Size(150, 250)
+            };
             btn.Click += (args, events) => fn(this);
             try
             {

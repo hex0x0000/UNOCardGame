@@ -180,6 +180,7 @@ namespace UNOCardGame
             };
             cards.Controls.Clear();
             cards.Controls.Add(infoLabel);
+            colorLabel.Hide();
             if (_end is GameEnd end)
                 MessageBox.Show(end.ToString(), "Partita terminata. Classifica finale:");
             ShowPlayers();
@@ -266,6 +267,7 @@ namespace UNOCardGame
                 try
                 {
                     tableCard.Image = (Image)Properties.Resources.ResourceManager.GetObject(_tableCard.ToString());
+                    colorLabel.Show();
                     colorPic.Show();
                     colorPic.Image = (Image)Properties.Resources.ResourceManager.GetObject(_tableCard.Color.ToString());
                     tableCard.Text = null;
