@@ -28,6 +28,7 @@
         /// </summary>
         private void InitializeComponent()
         {
+            System.ComponentModel.ComponentResourceManager resources = new System.ComponentModel.ComponentResourceManager(typeof(ConnectForm));
             portLabel = new System.Windows.Forms.Label();
             nickLabel = new System.Windows.Forms.Label();
             addressLabel = new System.Windows.Forms.Label();
@@ -190,6 +191,7 @@
             Controls.Add(nickLabel);
             Controls.Add(portLabel);
             FormBorderStyle = System.Windows.Forms.FormBorderStyle.FixedDialog;
+            Icon = (System.Drawing.Icon)resources.GetObject("$this.Icon");
             MaximizeBox = false;
             Name = "ConnectForm";
             StartPosition = System.Windows.Forms.FormStartPosition.CenterScreen;

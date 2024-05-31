@@ -29,6 +29,7 @@ namespace UNOCardGame
         /// </summary>
         private void InitializeComponent()
         {
+            System.ComponentModel.ComponentResourceManager resources = new System.ComponentModel.ComponentResourceManager(typeof(MainGame));
             drawButton = new System.Windows.Forms.Button();
             colorLabel = new System.Windows.Forms.Label();
             players = new System.Windows.Forms.FlowLayoutPanel();
@@ -199,6 +200,7 @@ namespace UNOCardGame
             Controls.Add(colorLabel);
             Controls.Add(drawButton);
             FormBorderStyle = System.Windows.Forms.FormBorderStyle.Fixed3D;
+            Icon = (System.Drawing.Icon)resources.GetObject("$this.Icon");
             Margin = new System.Windows.Forms.Padding(4, 3, 4, 3);
             MaximizeBox = false;
             Name = "MainGame";

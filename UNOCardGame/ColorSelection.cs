@@ -2,6 +2,7 @@
 using System.Collections.Generic;
 using System.ComponentModel;
 using System.Data;
+using System.Diagnostics;
 using System.Drawing;
 using System.Linq;
 using System.Runtime.Versioning;
@@ -26,6 +27,17 @@ namespace UNOCardGame
         private ColorSelection()
         {
             InitializeComponent();
+            try
+            {
+                redButton.Image = (Image)Properties.Resources.ResourceManager.GetObject("Red");
+                blueButton.Image = (Image)Properties.Resources.ResourceManager.GetObject("Blue");
+                yellowButton.Image = (Image)Properties.Resources.ResourceManager.GetObject("Yellow");
+                greenButton.Image = (Image)Properties.Resources.ResourceManager.GetObject("Green");
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"[ERROR] Impossibile caricare i colori nel ColorSelection: {ex}");
+            }
         }
 
         private void redButton_Click(object sender, EventArgs e)
@@ -50,6 +62,17 @@ namespace UNOCardGame
         {
             Result = Colors.Green;
             Close();
+        }
+
+        protected override void OnFormClosing(FormClosingEventArgs e)
+        {
+            if (Result == null)
+            {
+                MessageBox.Show("Devi selezionare un colore.");
+                e.Cancel = true;
+                return;
+            }
+            base.OnFormClosing(e);
         }
     }
 }
