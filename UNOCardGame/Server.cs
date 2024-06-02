@@ -736,6 +736,8 @@ namespace UNOCardGame
                                                 await AddCardsToPlayer(addCards, playerId);
                                                 await SendMessage("Game", $"A {name} sono state date {addCards} carte!");
                                                 addCards = 0;
+                                                nextTurn = true;
+                                                continue;
                                             }
                                         if (tableCard.IsCompatible(card))
                                         {
@@ -842,10 +844,10 @@ namespace UNOCardGame
                                                     await AddCardsToPlayer(6, playerId);
                                                     await SendMessage("Game", $"{prevName} non stava bluffando! Date 6 carte a {currName}");
                                                 }
+                                                gavePlusFour = null;
+                                                nextTurn = true;
                                             }
                                             else await SendToClient(new GameMessage(MessageType.Info, MessageContent.CannotCallBluff), playerId);
-                                            gavePlusFour = null;
-                                            nextTurn = true;
                                             break;
                                         default:
                                             Log.Warn($"ActionType non valido: {actionType}");
