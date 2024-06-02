@@ -541,7 +541,7 @@ namespace UNOCardGame
         /// <param name="playerId">ID del player</param>
         /// <param name="isOnline">Indica se il player a cui si aggiungono carte è online o no</param>
         /// <returns></returns>
-        private async Task AddCardsToPlayer(uint addCards, uint playerId, bool isOnline = true)
+        private async Task AddCardsToPlayer(uint addCards, uint playerId)
         {
             if (addCards == 0) addCards = 1;
             var (deck, _) = await GetPlayerDeckAndName(playerId);
@@ -549,8 +549,6 @@ namespace UNOCardGame
             {
                 deck.Add(addCards);
                 await SetPlayerDeck(playerId, deck);
-                if (isOnline)
-                    await SendToClient(new TurnUpdate(deck.Cards), playerId);
             }
         }
 
@@ -589,6 +587,16 @@ namespace UNOCardGame
             return won;
         }
 
+        private async Task UpdateTurn(uint playerTurnId, Card tableCard, bool isLeftToRight)
+        {
+            await SendToClients(new TurnUpdate(playerTurnId, tableCard, isLeftToRight, await GetPlayersCardsNum()));
+            await PlayersLock.WaitAsync();
+            foreach (var (id, playerData) in Players)
+                if (playerData.Player.IsOnline)
+                    await SendToClient(new TurnUpdate(playerData.Deck.Cards), id);
+            PlayersLock.Release();
+        }
+
         /// <summary>
         /// Gestisce il gioco.
         /// </summary>
@@ -611,7 +619,7 @@ namespace UNOCardGame
             var tableCard = Card.PickNormalRandom();
 
             // Senso di rotazione del gioco
-            bool isLeftToright = true;
+            bool isLeftToRight = true;
 
             // Player iniziale
             uint playerTurnId = ADMIN_ID;
@@ -644,35 +652,26 @@ namespace UNOCardGame
                     if (nextTurn || skipNext)
                     {
                         // Imposta il turno al prossimo player
-                        playerTurnId = await NextPlayer(playerTurnId, isLeftToright);
+                        playerTurnId = await NextPlayer(playerTurnId, isLeftToRight);
 
                         // Salta questo player e passa al prossimo
                         if (skipNext)
                         {
-                            playerTurnId = await NextPlayer(playerTurnId, isLeftToright);
+                            playerTurnId = await NextPlayer(playerTurnId, isLeftToRight);
                             skipNext = false;
                         }
                         saidUno = false;
                         nextTurn = false;
                     }
                     canc.ThrowIfCancellationRequested();
-                    await SendToClients(new TurnUpdate(playerTurnId, tableCard, isLeftToright, await GetPlayersCardsNum()));
+                    await UpdateTurn(playerTurnId, tableCard, isLeftToRight);
                     var packet = await GameMasterCommunicator.Reader.ReadAsync(canc);
                     if (packet.PacketId == INTERNALCOMM_ID)
                     {
                         switch ((InternalComm)packet.Data)
                         {
                             case InternalComm.UpdateCardsOfPlayer:
-                                {
-                                    if (packet.PlayerId is uint playerId)
-                                    {
-                                        var (deck, name) = await GetPlayerDeckAndName(playerId);
-                                        await SendToClient(new TurnUpdate(deck.Cards), playerId);
-                                        await SendMessage("Game", $"{name} è stato rimesso nella partita");
-                                    }
-                                    else Log.Warn($"Il GameMaster ha ricevuto un {nameof(InternalComm.UpdateCardsOfPlayer)} senza player id");
-                                }
-                                break;
+                                continue;
                             case InternalComm.SkipPlayer:
                                 {
                                     if (packet.PlayerId is uint playerId)
@@ -682,15 +681,15 @@ namespace UNOCardGame
                                             // Evita che il player esca senza prendersi le carte in più
                                             if (addCards > 0)
                                             {
-                                                await AddCardsToPlayer(addCards, playerId, false);
+                                                await AddCardsToPlayer(addCards, playerId);
                                                 addCards = 0;
                                             }
                                             else if (gavePlusFour != null)
                                             {
-                                                await AddCardsToPlayer(4, playerId, false);
+                                                await AddCardsToPlayer(4, playerId);
                                                 gavePlusFour = null;
                                             }
-                                            else await AddCardsToPlayer(1, playerId, false);
+                                            else await AddCardsToPlayer(1, playerId);
                                             nextTurn = true;
                                         }
                                     }
@@ -728,67 +727,67 @@ namespace UNOCardGame
                                         continue;
                                     }
 
-                                    var (deck, name) = await GetPlayerDeckAndName(playerId);
-                                    var card = deck.Get(cardId);
-
-                                    // Se c'è stata una catena di +2 e il giocatore mette un'altra carta il giocatore è forzato a pescare
-                                    if (tableCard.NormalType == Normals.PlusTwo && card.NormalType != Normals.PlusTwo)
-                                        if (addCards > 0)
-                                        {
-                                            await AddCardsToPlayer(addCards, playerId);
-                                            await SendMessage("Game", $"A {name} sono state date {addCards} carte!");
-                                            addCards = 0;
-                                        }
-                                    if (tableCard.IsCompatible(card))
+                                    if (await GetPlayerDeckAndName(playerId) is (Deck deck, string name) && deck.Get(cardId) is Card card)
                                     {
-                                        // Gestisce le carte che hanno un'azione
-                                        if (card.NormalType is Normals normalType)
-                                        {
-                                            if (normalType == Normals.Reverse)
-                                                isLeftToright = !isLeftToright;
-                                            else if (normalType == Normals.Block)
-                                                skipNext = true;
-                                            else if (normalType == Normals.PlusTwo)
-                                                addCards += 2;
-                                        }
-                                        else if (card.SpecialType is Specials specialType && actionUpdate.CardColor is Colors chosenColor)
-                                        {
-                                            // Imposta il colore scelto dall'utente
-                                            card.Color = chosenColor;
-
-                                            // Salva il nome e la carta corrente di chi ha lanciato il +4
-                                            if (specialType == Specials.PlusFour)
-                                                gavePlusFour = (playerId, tableCard);
-                                        }
-
-                                        // Imposta la carta sul tavolo
-                                        tableCard = card;
-
-                                        // Rimuove la carta
-                                        deck.Remove(cardId);
-                                        if (deck.Cards.Count == 0)
-                                        {
-                                            if (saidUno)
+                                        // Se c'è stata una catena di +2 e il giocatore mette un'altra carta il giocatore è forzato a pescare
+                                        if (tableCard.NormalType == Normals.PlusTwo && card.NormalType != Normals.PlusTwo)
+                                            if (addCards > 0)
                                             {
-                                                wonCount++;
-                                                await PlayerWon(playerId, wonCount);
-                                                nextTurn = true;
-                                                continue;
+                                                await AddCardsToPlayer(addCards, playerId);
+                                                await SendMessage("Game", $"A {name} sono state date {addCards} carte!");
+                                                addCards = 0;
                                             }
-                                            else
+                                        if (tableCard.IsCompatible(card))
+                                        {
+                                            // Gestisce le carte che hanno un'azione
+                                            if (card.NormalType is Normals normalType)
                                             {
-                                                await AddCardsToPlayer(2, playerId);
-                                                await SendMessage("Game", $"{name} non ha detto UNO!");
+                                                if (normalType == Normals.Reverse)
+                                                    isLeftToRight = !isLeftToRight;
+                                                else if (normalType == Normals.Block)
+                                                    skipNext = true;
+                                                else if (normalType == Normals.PlusTwo)
+                                                    addCards += 2;
                                             }
+                                            else if (card.SpecialType is Specials specialType && actionUpdate.CardColor is Colors chosenColor)
+                                            {
+                                                // Imposta il colore scelto dall'utente
+                                                card.Color = chosenColor;
+
+                                                // Salva il nome e la carta corrente di chi ha lanciato il +4
+                                                if (specialType == Specials.PlusFour)
+                                                    gavePlusFour = (playerId, tableCard);
+                                            }
+
+                                            // Imposta la carta sul tavolo
+                                            tableCard = card;
+
+                                            // Rimuove la carta
+                                            deck.Remove(cardId);
+                                            if (deck.Cards.Count == 0)
+                                            {
+                                                if (saidUno)
+                                                {
+                                                    wonCount++;
+                                                    await PlayerWon(playerId, wonCount);
+                                                    nextTurn = true;
+                                                    continue;
+                                                }
+                                                else
+                                                {
+                                                    await AddCardsToPlayer(2, playerId);
+                                                    await SendMessage("Game", $"{name} non ha detto UNO!");
+                                                }
+                                            }
+                                            await SetPlayerDeck(playerId, deck);
+                                            nextTurn = true;
                                         }
-                                        await SetPlayerDeck(playerId, deck);
-
-                                        // Manda il deck aggiornato al giocatore
-                                        await SendToClient(new TurnUpdate(deck.Cards), playerId);
-
-                                        nextTurn = true;
+                                        else
+                                        {
+                                            await SendToClient(new TurnUpdate(deck.Cards), playerId);
+                                            await SendToClient(new GameMessage(MessageType.Error, MessageContent.InvalidCard), playerId);
+                                        }
                                     }
-                                    else await SendToClient(new GameMessage(MessageType.Error, MessageContent.InvalidCard), playerId);
                                 }
                                 else if (actionUpdate.Type is ActionType actionType)
                                 {
@@ -806,7 +805,7 @@ namespace UNOCardGame
                                                 if (tableCard.IsCompatible(card) && card.NormalType is Normals normalType)
                                                 {
                                                     if (normalType == Normals.Reverse)
-                                                        isLeftToright = !isLeftToright;
+                                                        isLeftToRight = !isLeftToRight;
                                                     else if (normalType == Normals.Block)
                                                         skipNext = true;
                                                     else if (normalType == Normals.PlusTwo)
@@ -819,7 +818,6 @@ namespace UNOCardGame
                                                     var (deck, _) = await GetPlayerDeckAndName(playerId);
                                                     deck.Add(card);
                                                     await SetPlayerDeck(playerId, deck);
-                                                    await SendToClient(new TurnUpdate(deck.Cards), playerId);
                                                 }
                                             }
                                             else
@@ -896,19 +894,17 @@ namespace UNOCardGame
         }
 
         /// <summary>
-        /// Manda un pacchetto a tutti i client.
+        /// Manda il pacchetto al socket e gestisce gli errori
         /// </summary>
-        /// <typeparam name="T">Tipo serializzabile</typeparam>
-        /// <param name="packet">Un pacchetto qualsiasi</param>
+        /// <typeparam name="T"></typeparam>
+        /// <param name="packet"></param>
+        /// <param name="socket"></param>
         /// <returns></returns>
-        private async Task BroadcastAll<T>(T packet) where T : Serialization<T>
+        private async Task SendPacketTo<T>(T packet, Socket socket) where T : Serialization<T>
         {
-            await ClientsLock.WaitAsync();
             try
             {
-                foreach (var client in Clients)
-                    if (client.Value != null)
-                        await Packet.Send(client.Value, packet);
+                await Packet.Send(socket, packet);
             }
             catch (PacketException e)
             {
@@ -920,10 +916,23 @@ namespace UNOCardGame
             {
                 Log.Error($"Errore durante la spedizione di un pacchetto ({packet.PacketId}): {e}");
             }
-            finally
-            {
-                ClientsLock.Release();
-            }
+        }
+
+        /// <summary>
+        /// Manda un pacchetto a tutti i client.
+        /// </summary>
+        /// <typeparam name="T">Tipo serializzabile</typeparam>
+        /// <param name="packet">Un pacchetto qualsiasi</param>
+        /// <returns></returns>
+        private async Task BroadcastAll<T>(T packet) where T : Serialization<T>
+        {
+            await ClientsLock.WaitAsync();
+            List<Task> senders = [];
+            foreach (var client in Clients)
+                if (client.Value != null)
+                    senders.Add(Task.Run(async () => await SendPacketTo(packet, client.Value)));
+            await Task.WhenAll(senders);
+            ClientsLock.Release();
         }
 
         /// <summary>
@@ -937,26 +946,10 @@ namespace UNOCardGame
         {
             // Manda il messaggio al player se è online, altrimenti viene ignorato
             await ClientsLock.WaitAsync();
-            try
-            {
-                if (Clients.TryGetValue(id, out var client))
-                    if (client != null)
-                        await Packet.Send(client, packet);
-            }
-            catch (PacketException e)
-            {
-                if (e.ExceptionType == PacketExceptions.ConnectionClosed)
-                    return;
-                Log.Error($"Errore durante la spedizione del pacchetto ({packet.PacketId}) all'utente con {id}: {e}");
-            }
-            catch (Exception e)
-            {
-                Log.Error($"Errore durante la spedizione del pacchetto ({packet.PacketId}) all'utente con {id}: {e}");
-            }
-            finally
-            {
-                ClientsLock.Release();
-            }
+            if (Clients.TryGetValue(id, out var client))
+                if (client != null)
+                    await SendPacketTo(packet, client);
+            ClientsLock.Release();
         }
 
         /// <summary>
@@ -1140,7 +1133,7 @@ namespace UNOCardGame
         /// <returns>Ritorna true se il comando può essere mandato in chat</returns>
         private async Task<bool> ExecCommand(uint id, string msg)
         {
-            string[] args = msg.ToLower().Split(' ');
+            string[] args = msg.Split(' ');
             if (args[0] == "uno!")
             {
                 await SendInternalComm(InternalComm.SaidUno, id);

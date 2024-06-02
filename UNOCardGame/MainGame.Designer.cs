@@ -131,6 +131,7 @@ namespace UNOCardGame
             msgWriteBox.PlaceholderText = "Scrivi qui il tuo messaggio...";
             msgWriteBox.Size = new System.Drawing.Size(497, 23);
             msgWriteBox.TabIndex = 13;
+            msgWriteBox.KeyDown += msgWriteBox_KeyDown;
             // 
             // msgSendButton
             // 
@@ -199,10 +200,10 @@ namespace UNOCardGame
             Controls.Add(players);
             Controls.Add(colorLabel);
             Controls.Add(drawButton);
-            FormBorderStyle = System.Windows.Forms.FormBorderStyle.Fixed3D;
             Icon = (System.Drawing.Icon)resources.GetObject("$this.Icon");
             Margin = new System.Windows.Forms.Padding(4, 3, 4, 3);
             MaximizeBox = false;
+            MaximumSize = new System.Drawing.Size(1554, 926);
             Name = "MainGame";
             StartPosition = System.Windows.Forms.FormStartPosition.CenterScreen;
             Text = "UNO";
