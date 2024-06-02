@@ -34,7 +34,7 @@ namespace UNOCardGame.Packets
         public string Message
         {
             get => _Message;
-            private set => _Message = MsgCut(value.Trim().Replace("\n", ""));
+            private set => _Message = Clean(value);
         }
 
         /// <summary>
@@ -50,5 +50,11 @@ namespace UNOCardGame.Packets
         }
 
         private static string MsgCut(string value) => value.Length <= MSG_MAX_CHARS ? value : value[..MSG_MAX_CHARS];
+
+        /// <summary>
+        /// Fa in modo che il messaggio possa essere mandato
+        /// </summary>
+        /// <returns></returns>
+        public static string Clean(string value) => MsgCut(value.Trim().Replace("\n", ""));
     }
 }

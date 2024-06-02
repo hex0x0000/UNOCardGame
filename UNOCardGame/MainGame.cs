@@ -151,8 +151,8 @@ namespace UNOCardGame
         {
             InitializeComponent();
             InitStyleComponents();
-            InitClient(player, address, port, false, null);
             Server = new Server(address, port, options);
+            InitClient(player, address, port, false, null);
         }
 
         /// <summary>
@@ -161,6 +161,8 @@ namespace UNOCardGame
         /// <param name="_end"></param>
         private void ResetGame(GameEnd _end)
         {
+            drawButton.Enabled = bluffButton.Enabled = false;
+            cards.Enabled = true;
             playerCardsNum = [];
             try
             {
@@ -224,13 +226,25 @@ namespace UNOCardGame
             ResetGame(null);
         }
 
-        private void msgSendButton_Click(object sender, EventArgs e)
+        private void SendMsg()
         {
-            string msg = msgWriteBox.Text;
+            string msg = ChatMessage.Clean(msgWriteBox.Text);
+            msgWriteBox.Clear();
             if (msg == "")
                 return;
-            msgWriteBox.Clear();
             Client.Send(new ChatMessage(msg));
+        }
+
+        private void msgSendButton_Click(object sender, EventArgs e) => SendMsg();
+
+        private void msgWriteBox_KeyDown(object sender, KeyEventArgs e)
+        {
+            if (e.KeyCode == Keys.Enter)
+            {
+                SendMsg();
+                e.Handled = true;
+                e.SuppressKeyPress = true;
+            }
         }
 
         private void drawButton_Click(object sender, EventArgs e)
@@ -279,6 +293,10 @@ namespace UNOCardGame
                     colorPic.Image = null;
                 }
                 playerTurnId = _playerTurnId;
+                if (Client.Player.Id is uint id)
+                    drawButton.Enabled = bluffButton.Enabled = cards.Enabled = playerTurnId == id;
+                else if (Server != null)
+                    drawButton.Enabled = bluffButton.Enabled = cards.Enabled = playerTurnId == Server.ADMIN_ID;
                 playerCardsNum = _playerCardsNum;
                 ShowPlayers();
             }
